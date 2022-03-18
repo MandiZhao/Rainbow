@@ -18,6 +18,8 @@ class SegmentTree():
     self.sum_tree = np.zeros((self.tree_start + self.size,), dtype=np.float32)
     self.data = np.array([blank_trans] * size, dtype=Transition_dtype)  # Build structured array
     self.max = 1  # Initial max value to return (1 = 1^ω)
+    self.rewards = np.zeros(size)
+    self.reward_stat = [0, 1]
 
   # Updates nodes values from current tree
   def _update_nodes(self, indices):
@@ -59,6 +61,13 @@ class SegmentTree():
     self.index = (self.index + 1) % self.size  # Update index
     self.full = self.full or self.index == 0  # Save when capacity reached
     self.max = max(value, self.max)
+    self.rewards[self.index] = data[3]
+    self.reward_stat[0] = np.mean(self.rewards) if self.full else np.mean(self.rewards[:self.index]) 
+    self.reward_stat[1] = np.std(self.rewards) if self.full else np.std(self.rewards[:self.index])
+    if np.isnan(self.reward_stat[1]):
+      self.reward_stat[1] = 1
+    # print(self.reward_stat)
+
 
   # Searches for the location of values in sum tree
   def _retrieve(self, indices, values):
@@ -100,6 +109,7 @@ class ReplayMemory():
     self.t = 0  # Internal episode timestep counter
     self.n_step_scaling = torch.tensor([self.discount ** i for i in range(self.n)], dtype=torch.float32, device=self.device)  # Discount-scaling vector for n-step returns
     self.transitions = SegmentTree(capacity)  # Store transitions in a wrap-around cyclic buffer within a sum tree for querying priorities
+    self.normalize_reward = args.normalize_reward
 
   # Adds state and action at time t, reward and terminal at time t + 1
   def append(self, state, action, reward, terminal):
@@ -139,6 +149,9 @@ class ReplayMemory():
     # Discrete actions to be used as index
     actions = torch.tensor(np.copy(transitions['action'][:, self.history - 1]), dtype=torch.int64, device=self.device)
     # Calculate truncated n-step discounted returns R^n = Σ_k=0->n-1 (γ^k)R_t+k+1 (note that invalid nth next states have reward 0)
+    if self.normalize_reward:
+      [rew_mean, rew_std] = self.transitions.reward_stat
+      transitions['reward'] = transitions['reward'] / rew_std + 1e-8
     rewards = torch.tensor(np.copy(transitions['reward'][:, self.history - 1:-1]), dtype=torch.float32, device=self.device)
     R = torch.matmul(rewards, self.n_step_scaling)
     # Mask for non-terminal nth next states

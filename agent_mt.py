@@ -7,9 +7,10 @@ from torch import optim
 from torch.nn.utils import clip_grad_norm_
 
 from model import DQN
+from copy import deepcopy
 
 
-class Agent():
+class MultiTaskAgent():
   def __init__(self, args, env):
     self.action_space = env.action_space()
     self.atoms = args.atoms
@@ -44,6 +45,7 @@ class Agent():
       param.requires_grad = False
 
     self.optimiser = optim.Adam(self.online_net.parameters(), lr=args.learning_rate, eps=args.adam_eps)
+    self.num_games_per_batch = args.num_games_per_batch
     
   # Resets noisy weights in all linear layers (of online net only)
   def reset_noise(self):
@@ -58,13 +60,57 @@ class Agent():
   def act_e_greedy(self, state, epsilon=0.001):  # High ε can reduce evaluation scores drastically
     return np.random.randint(0, self.action_space) if np.random.random() < epsilon else self.act(state)
 
-  def learn(self, mem):
+  def learn_multi_buffer(self, mems):
+    """ Samples game-specific buffers first """
+    sub_batch_size = int(self.batch_size / self.num_games_per_batch)
+    sampled_buffer_ids = np.random.choice(len(mems), self.num_games_per_batch, replace=(len(mems) < self.num_games_per_batch))
+    actual_bsize = int(sub_batch_size * self.num_games_per_batch)
+    sub_batches = dict()
+    for _id in sampled_buffer_ids:
+      mem = mems[_id]
+      idxs, states, actions, returns, next_states, nonterminals, weights = mem.sample(sub_batch_size)
+      sub_batches[_id] = (idxs, states, actions, returns, next_states, nonterminals, weights)
+    
+    states = torch.cat([sub_batches[_id][1] for _id in sampled_buffer_ids])
+    actions = torch.cat([sub_batches[_id][2] for _id in sampled_buffer_ids])
+    returns = torch.cat([sub_batches[_id][3] for _id in sampled_buffer_ids])
+    next_states = torch.cat([sub_batches[_id][4] for _id in sampled_buffer_ids])
+    nonterminals = torch.cat([sub_batches[_id][5] for _id in sampled_buffer_ids])
+    weights = torch.cat([sub_batches[_id][6] for _id in sampled_buffer_ids])
+
+    loss_np = self.one_batch_update(states, actions, returns, next_states, nonterminals, weights, actual_bsize)
+    for i, _id in enumerate(sampled_buffer_ids):
+      mems[_id].update_priorities(sub_batches[_id][0], loss_np[i * sub_batch_size: (i + 1) * sub_batch_size])
+   
+  def learn_single_buffer(self, mem): 
     # Sample transitions
     idxs, states, actions, returns, next_states, nonterminals, weights = mem.sample(self.batch_size)
+    loss_np = self.one_batch_update(states, actions, returns, next_states, nonterminals, weights, self.batch_size)
+    mem.update_priorities(idxs, loss_np)  # Update priorities of sampled transitions
 
+  def learn_reptile(self, mems, frac_done, reptile_eps=[1, 0], inner_steps=5):
+    """ samples 1 game and multiple updates """
+    buffer_id = np.random.choice(len(mems))
+    mem = mems[buffer_id]
+    old_net = deepcopy(self.online_net)
+    for step in range(inner_steps):
+      # Sample transitions
+      idxs, states, actions, returns, next_states, nonterminals, weights = mem.sample(self.batch_size)
+      loss_np = self.one_batch_update(states, actions, returns, next_states, nonterminals, weights, self.batch_size)
+      mem.update_priorities(idxs, loss_np)
+    # update params
+    eps = frac_done * reptile_eps[1] + (1 - frac_done) * reptile_eps[0]
+
+    for old_param, new_param in zip(old_net.parameters(), self.online_net.parameters()):
+        new_param.data.copy_(
+            new_param.data + eps * (old_param.data - new_param.data))
+    return
+
+
+  def one_batch_update(self, states, actions, returns, next_states, nonterminals, weights, batch_size):
     # Calculate current state probabilities (online network noise already sampled)
     log_ps = self.online_net(states, log=True)  # Log probabilities log p(s_t, ·; θonline)
-    log_ps_a = log_ps[range(self.batch_size), actions]  # log p(s_t, a_t; θonline)
+    log_ps_a = log_ps[range(batch_size), actions]  # log p(s_t, a_t; θonline)
 
     with torch.no_grad():
       # Calculate nth next state probabilities
@@ -73,7 +119,7 @@ class Agent():
       argmax_indices_ns = dns.sum(2).argmax(1)  # Perform argmax action selection using online network: argmax_a[(z, p(s_t+n, a; θonline))]
       self.target_net.reset_noise()  # Sample new target net noise
       pns = self.target_net(next_states)  # Probabilities p(s_t+n, ·; θtarget)
-      pns_a = pns[range(self.batch_size), argmax_indices_ns]  # Double-Q probabilities p(s_t+n, argmax_a[(z, p(s_t+n, a; θonline))]; θtarget)
+      pns_a = pns[range(batch_size), argmax_indices_ns]  # Double-Q probabilities p(s_t+n, argmax_a[(z, p(s_t+n, a; θonline))]; θtarget)
 
       # Compute Tz (Bellman operator T applied to z)
       Tz = returns.unsqueeze(1) + nonterminals * (self.discount ** self.n) * self.support.unsqueeze(0)  # Tz = R^n + (γ^n)z (accounting for terminal states)
@@ -86,8 +132,8 @@ class Agent():
       u[(l < (self.atoms - 1)) * (l == u)] += 1
 
       # Distribute probability of Tz
-      m = states.new_zeros(self.batch_size, self.atoms)
-      offset = torch.linspace(0, ((self.batch_size - 1) * self.atoms), self.batch_size).unsqueeze(1).expand(self.batch_size, self.atoms).to(actions)
+      m = states.new_zeros(batch_size, self.atoms)
+      offset = torch.linspace(0, ((batch_size - 1) * self.atoms), batch_size).unsqueeze(1).expand(batch_size, self.atoms).to(actions)
       m.view(-1).index_add_(0, (l + offset).view(-1), (pns_a * (u.float() - b)).view(-1))  # m_l = m_l + p(s_t+n, a*)(u - b)
       m.view(-1).index_add_(0, (u + offset).view(-1), (pns_a * (b - l.float())).view(-1))  # m_u = m_u + p(s_t+n, a*)(b - l)
 
@@ -96,12 +142,8 @@ class Agent():
     (weights * loss).mean().backward()  # Backpropagate importance-weighted minibatch loss
     clip_grad_norm_(self.online_net.parameters(), self.norm_clip)  # Clip gradients by L2 norm
     self.optimiser.step()
-
-    mem.update_priorities(idxs, loss.detach().cpu().numpy())  # Update priorities of sampled transitions
-
-  def learn_multi_mem(self, mems, ):
-
-
+    return loss.detach().cpu().numpy()
+    
   def update_target_net(self):
     self.target_net.load_state_dict(self.online_net.state_dict())
 

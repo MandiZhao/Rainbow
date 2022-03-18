@@ -1,0 +1,18 @@
+device: 'cuda'
+env:
+  device: ${device}
+  seed: 123
+  games: ['breakout', 'beam_rider', 'seaquest', 'asteroids'] # ['pong'] # ['asteroids'] # ['pong', 'asteroids', 'qbert'] # 'breakout', 
+  history_length: 4
+  invalid_default_action: 0 
+  max_episode_length: 108000
+  modify_action_size: 0 
+
+# alien, battle_zone, frostbite, krull
+
+
+# load model:
+# MODEL=results/4Task-B32/model.pth
+# python main_mt.py --games pong --id FineTune-Pong --model $MODEL
+# 'breakout' 'beam_rider' 'seaquest' 'asteroids'
+# new: asteroids alien beam_rider frostbite krull ms_pacman road_runner seaquest

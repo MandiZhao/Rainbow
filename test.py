@@ -7,10 +7,11 @@ from plotly.graph_objs.scatter import Line
 import torch
 
 from env import Env
+from env_mt import MultiTaskEnv
 
 
 # Test DQN
-def test(args, T, dqn, val_mem, metrics, results_dir, evaluate=False):
+def test(args, T, dqn, val_mem, metrics, results_dir, evaluate=False, plot_line=False):
   env = Env(args)
   env.eval()
   metrics['steps'].append(T)
@@ -51,12 +52,64 @@ def test(args, T, dqn, val_mem, metrics, results_dir, evaluate=False):
     torch.save(metrics, os.path.join(results_dir, 'metrics.pth'))
 
     # Plot
-    _plot_line(metrics['steps'], metrics['rewards'], 'Reward', path=results_dir)
-    _plot_line(metrics['steps'], metrics['Qs'], 'Q', path=results_dir)
+    if plot_line:
+      _plot_line(metrics['steps'], metrics['rewards'], 'Reward', path=results_dir)
+      _plot_line(metrics['steps'], metrics['Qs'], 'Q', path=results_dir)
 
   # Return average reward and Q-value
   return avg_reward, avg_Q
 
+def test_all_games(games, env_cfg, args, T, dqn, val_mem, metrics, results_dir, evaluate=False):
+  env = MultiTaskEnv(env_cfg)
+  env.eval()
+  for _id, game in enumerate(games): 
+    game_metrics = metrics[f'game_{game}'] # metrics['game_{:02d}'.format(_id)]
+    env.reset()
+    env._set_game(_id)
+    game_metrics['steps'].append(T)
+    T_rewards, T_Qs = [], []
+
+    # Test performance over several episodes
+    done = True
+    for _ in range(args.evaluation_episodes):
+      while True:
+        if done:
+          state, reward_sum, done = env.reset(resample_game=False), 0, False
+
+        action = dqn.act_e_greedy(state)  # Choose an action ε-greedily
+        state, reward, done, info = env.step(action)  # Step
+        assert info.get('game_id') == _id, 'Game ID mismatch: {} != {}'.format(info.get('game_id'), _id)
+        reward_sum += reward
+        if args.render:
+          env.render()
+
+        if done:
+          T_rewards.append(reward_sum) 
+          break
+          
+    env.close()
+
+    # Test Q-values over validation memory
+    for state in val_mem:  # Iterate over valid states
+      T_Qs.append(dqn.evaluate_q(state))
+
+    avg_reward, avg_Q = sum(T_rewards) / len(T_rewards), sum(T_Qs) / len(T_Qs)
+    if not evaluate:
+      # Save model parameters if improved
+      if avg_reward > game_metrics['best_avg_reward']:
+        game_metrics['best_avg_reward'] = avg_reward
+        dqn.save(results_dir, name=f'game_{game}_best.pth')
+
+      # Append to results and save metrics
+      game_metrics['rewards'].append(T_rewards)
+      game_metrics['Qs'].append(T_Qs)
+      torch.save(metrics, os.path.join(results_dir, f'game_{game}_metrics.pth'))
+    
+    game_metrics['avg_reward'] = avg_reward
+    game_metrics['avg_q'] = avg_Q 
+  return  
+
+ 
 
 # Plots min, max and mean + standard deviation bars of a population over time
 def _plot_line(xs, ys_population, title, path=''):
