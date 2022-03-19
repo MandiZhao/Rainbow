@@ -64,7 +64,7 @@ parser.add_argument('--disable-bzip-memory', action='store_true', help='Don\'t z
 parser.add_argument('--games', nargs='+', default=['pong'], help='Environment names')
 parser.add_argument('--no_wb', action='store_true', help='Skip wandb for logging')
 parser.add_argument('--separate_buffer', action='store_true', help='Use separate buffer for training and evaluation')
-parser.add_argument('--num_games_per_batch', type=int, default=4, help='Number of games in one update batch')
+parser.add_argument('--num_games_per_batch', type=int, default=1, help='Number of games in one update batch, if >1 games are used the default is num_games')
 parser.add_argument('--reptile_k', type=int, default=0, help='set > 0 for reptile')
 parser.add_argument('--load_memory', action='store_true', help='Load memory from file, fintuning runs dont need to load memory')
 parser.add_argument('--normalize_reward', action='store_true', help='Normalize rewards')
@@ -119,8 +119,11 @@ cfg = OmegaConf.load('conf/config.yaml').env
 cfg.games = list(args.games)
 games = sorted(cfg.games)
 if len(games) > 1:
-  args.learn_start *= len(games)
-  print('Setting learn_start to longer for multi-task runs {}'.format(args.learn_start))
+  args.learn_start = int(args.learn_start / len(games))
+  print('Setting learn_start to **shorter** for multi-task runs {}'.format(args.learn_start))
+  if args.num_games_per_batch == 1:
+    print('Default setting num_games_per_batch to {} for multi-task runs'.format(len(games)))
+    args.num_games_per_batch = len(games)
 env = MultiTaskEnv(cfg)
 env.train()
 action_space = env.action_space()
@@ -186,8 +189,31 @@ if args.evaluate:
 else:
   # Training loop
   dqn.train()
+  total_T = 0
+  for _id, game in enumerate(env.games):
+    env.reset()
+    env._set_game(_id)
+    done = True
+    for env_T in range(args.learn_start):
+      if done:
+        state = env.reset(resample_game=False)
+
+      if env_T % args.replay_frequency == 0:
+        dqn.reset_noise()  # Draw a new set of noisy weights
+
+      action = dqn.act(state)  # Choose an action greedily (with noisy weights)
+      next_state, reward, done, info = env.step(action)  # Step
+      if args.reward_clip > 0:
+        reward = max(min(reward, args.reward_clip), -args.reward_clip)  # Clip rewards
+      buffer_idx = info.get('game_id') if args.separate_buffer else 0
+      mem = mems[buffer_idx]
+      mem.append(state, action, reward, done)  # Append transition to memory
+      total_T += 1
+    print('done appending to buffer index {}'.format(buffer_idx))
+  print('done with all games, total T {}'.format(total_T))
+  
   done = True
-  for T in trange(1, args.T_max + 1):
+  for T in trange(total_T, args.T_max + 1):
     if done:
       state = env.reset()
 
@@ -203,50 +229,50 @@ else:
     mem.append(state, action, reward, done)  # Append transition to memory
 
     # Train and test
-    if T >= args.learn_start:
-      mem.priority_weight = min(mem.priority_weight + priority_weight_increase, 1)  # Anneal importance sampling weight β to 1
+    # if T >= args.learn_start:
+    mem.priority_weight = min(mem.priority_weight + priority_weight_increase, 1)  # Anneal importance sampling weight β to 1
 
-      if T % args.replay_frequency == 0:
-        if args.reptile_k > 0:
-          frac = T/args.T_max
-          dqn.learn_reptile(mems=mems, frac_done=frac, inner_steps=args.reptile_k)
-        elif args.separate_buffer:
-          dqn.learn_multi_buffer(mems)
-        else:
-          dqn.learn_single_buffer(mem)  # Train with n-step distributional double-Q learning
+    if T % args.replay_frequency == 0:
+      if args.reptile_k > 0:
+        frac = T/args.T_max
+        dqn.learn_reptile(mems=mems, frac_done=frac, inner_steps=args.reptile_k)
+      elif args.separate_buffer:
+        dqn.learn_multi_buffer(mems)
+      else:
+        dqn.learn_single_buffer(mem)  # Train with n-step distributional double-Q learning
 
-      if T % args.evaluation_interval == 0:
-        dqn.eval()  # Set DQN (online network) to evaluation mode
-        test_all_games(games, cfg, args, T, dqn, val_mem, metrics, results_dir)  # Test
-        
-        tolog = {'Env Step': T}
-        log_string = f"T = {T}/{args.T_max}"
-        for key, v in metrics.items():
-          if 'game_' in key:
-            for kk, vv in v.items():
-              if not isinstance(vv, list):
-                tolog[key + '/' + kk] = vv 
-                tolog[kk + '/' + key] = vv 
-            log_string += f" {key} | Avg. reward: {v.get('avg_reward', 0):2f} | Avg. Q: {v.get('avg_q', 0):2f}"
+    if T % args.evaluation_interval == 0:
+      dqn.eval()  # Set DQN (online network) to evaluation mode
+      test_all_games(games, cfg, args, T, dqn, val_mem, metrics, results_dir)  # Test
+      
+      tolog = {'Env Step': T}
+      log_string = f"T = {T}/{args.T_max}"
+      for key, v in metrics.items():
+        if 'game_' in key:
+          for kk, vv in v.items():
+            if not isinstance(vv, list):
+              tolog[key + '/' + kk] = vv 
+              tolog[kk + '/' + key] = vv 
+          log_string += f" {key} | Avg. reward: {v.get('avg_reward', 0):2f} | Avg. Q: {v.get('avg_q', 0):2f}"
 
-        if not args.no_wb: 
-          wandb.log(tolog)
+      if not args.no_wb: 
+        wandb.log(tolog)
 
-        # log(log_string, args)
-        dqn.train()  # Set DQN (online network) back to training mode
+      # log(log_string, args)
+      dqn.train()  # Set DQN (online network) back to training mode
 
-        # If memory path provided, save it
-        if args.memory is not None:
-          assert not args.separate_buffer, 'Separate buffer not supported with memory!'
-          save_memory(mem, args.memory, args.disable_bzip_memory)
+      # If memory path provided, save it
+      if args.memory is not None:
+        assert not args.separate_buffer, 'Separate buffer not supported with memory!'
+        save_memory(mem, args.memory, args.disable_bzip_memory)
 
-      # Update target network
-      if T % args.target_update == 0:
-        dqn.update_target_net()
+    # Update target network
+    if T % args.target_update == 0:
+      dqn.update_target_net()
 
-      # Checkpoint the network
-      if (args.checkpoint_interval != 0) and (T % args.checkpoint_interval == 0):
-        dqn.save(results_dir, f'checkpoint_{T}.pth')
+    # Checkpoint the network
+    if (args.checkpoint_interval != 0) and (T % args.checkpoint_interval == 0):
+      dqn.save(results_dir, f'checkpoint_{T}.pth')
 
     state = next_state
 

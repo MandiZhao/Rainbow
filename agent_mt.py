@@ -142,7 +142,13 @@ class MultiTaskAgent():
     (weights * loss).mean().backward()  # Backpropagate importance-weighted minibatch loss
     clip_grad_norm_(self.online_net.parameters(), self.norm_clip)  # Clip gradients by L2 norm
     self.optimiser.step()
-    return loss.detach().cpu().numpy()
+
+    loss_np = loss.detach().cpu().numpy()
+    if np.any(np.isnan(loss_np)):
+      print(f'Batch update loss, {sum(np.isnan(loss_np))} elements got nan!')
+      loss_np[np.isnan(loss_np)] = 0
+      
+    return loss_np
     
   def update_target_net(self):
     self.target_net.load_state_dict(self.online_net.state_dict())
