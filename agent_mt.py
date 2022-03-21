@@ -35,6 +35,12 @@ class MultiTaskAgent():
         print("Loading pretrained model: " + args.model)
       else:  # Raise error if incorrect model path provided
         raise FileNotFoundError(args.model)
+      
+      if args.load_conv_only:
+        self.online_net.reinit_fc(args)
+        self.online_net.freeze_conv()
+        self.online_net = self.online_net.to(device=args.device)
+        
 
     self.online_net.train()
 
@@ -105,7 +111,6 @@ class MultiTaskAgent():
         new_param.data.copy_(
             new_param.data + eps * (old_param.data - new_param.data))
     return
-
 
   def one_batch_update(self, states, actions, returns, next_states, nonterminals, weights, batch_size):
     # Calculate current state probabilities (online network noise already sampled)

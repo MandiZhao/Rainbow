@@ -83,3 +83,22 @@ class DQN(nn.Module):
     for name, module in self.named_children():
       if 'fc' in name:
         module.reset_noise()
+
+  def reinit_fc(self, args):
+    print('Reinitializing 4 fully connected layers')
+    self.fc_h_v = NoisyLinear(self.conv_output_size, args.hidden_size, std_init=args.noisy_std)
+    self.fc_h_a = NoisyLinear(self.conv_output_size, args.hidden_size, std_init=args.noisy_std)
+    self.fc_z_v = NoisyLinear(args.hidden_size, self.atoms, std_init=args.noisy_std)
+    self.fc_z_a = NoisyLinear(args.hidden_size, self.action_space * self.atoms, std_init=args.noisy_std)
+
+  def freeze_conv(self):
+    print('Freezing all conv. layers')
+    for p in self.convs.parameters():
+      p.requires_grad = False
+    
+  def unfreeze_conv(self):
+    print('Unfreezing all conv. layers')
+    for p in self.convs.parameters():
+      if p.requires_grad:
+        print('Warining, conv. layer was not frozen')
+      p.requires_grad = True

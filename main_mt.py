@@ -20,13 +20,25 @@ from env_mt import MultiTaskEnv
 from omegaconf import DictConfig, OmegaConf
 import wandb 
 
+GAME_NAMES = {
+  'alien': 'Alien',
+  'breakout': 'Breakout',
+  'pong': 'Pong',
+  'asteroids': 'Asteroids',
+  'qbert': 'Qbert',
+  'seaquest': 'Seaquest',
+  'up_n_down': 'UpNDown',
+  'krull': 'Krull',
+  'frostbite': 'FrostBite',
+}
+
 # Note that hyperparameters may originally be reported in ATARI game frames instead of agent steps
 parser = argparse.ArgumentParser(description='Rainbow')
 parser.add_argument('--id', type=str, default='default', help='Experiment ID')
 parser.add_argument('--seed', type=int, default=123, help='Random seed')
 parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
 # parser.add_argument('--game', type=str, default='space_invaders', choices=atari_py.list_games(), help='ATARI game')
-parser.add_argument('--T-max', type=int, default=int(50e6), metavar='STEPS', help='Number of training steps (4x number of frames)')
+parser.add_argument('--T-max', type=int, default=int(5e6), metavar='STEPS', help='Number of training steps (4x number of frames)')
 parser.add_argument('--max-episode-length', type=int, default=int(108e3), metavar='LENGTH', help='Max episode length in game frames (0 to disable)')
 parser.add_argument('--history-length', type=int, default=4, metavar='T', help='Number of consecutive states processed')
 parser.add_argument('--architecture', type=str, default='canonical', choices=['canonical', 'data-efficient'], metavar='ARCH', help='Network architecture')
@@ -44,7 +56,7 @@ parser.add_argument('--multi-step', type=int, default=3, metavar='n', help='Numb
 parser.add_argument('--discount', type=float, default=0.99, metavar='γ', help='Discount factor')
 parser.add_argument('--target-update', type=int, default=int(8e3), metavar='τ', help='Number of steps after which to update target network')
 parser.add_argument('--reward-clip', type=int, default=1, metavar='VALUE', help='Reward clipping (0 to disable)')
-parser.add_argument('--learning-rate', type=float, default=0.0000625, metavar='η', help='Learning rate')
+parser.add_argument('--learning_rate', type=float, default=0.0000625, metavar='η', help='Learning rate')
 parser.add_argument('--adam-eps', type=float, default=1.5e-4, metavar='ε', help='Adam epsilon')
 parser.add_argument('--batch_size', type=int, default=32, metavar='SIZE', help='Batch size')
 parser.add_argument('--norm-clip', type=float, default=10, metavar='NORM', help='Max L2 norm for gradient clipping')
@@ -68,12 +80,26 @@ parser.add_argument('--num_games_per_batch', type=int, default=1, help='Number o
 parser.add_argument('--reptile_k', type=int, default=0, help='set > 0 for reptile')
 parser.add_argument('--load_memory', action='store_true', help='Load memory from file, fintuning runs dont need to load memory')
 parser.add_argument('--normalize_reward', action='store_true', help='Normalize rewards')
+parser.add_argument('--load_conv_only', action='store_true', help='Load convolutional layers only')
+parser.add_argument('--unfreeze_conv_when', type=int, default=50e6, help='Unfreeze convolutional layers when this many steps have passed')
 # Setup
 args = parser.parse_args()
+
+if args.reptile_k > 0:
+  args.separate_buffer = True
+  print('Using Reptile with inner step size: {}'.format(args.reptile_k))
+  args.id = f'Reptile{args.reptile_k}-' + args.id
+
+if len(args.games) > 1:
+  args.id = f'{len(args.games)}Task-' + args.id
+else:
+  args.id = '{}-'.format(GAME_NAMES[args.games[0]]) + args.id
 
 print(' ' * 26 + 'Options')
 for k, v in vars(args).items():
   print(' ' * 26 + k + ': ' + str(v))
+
+
 results_dir = os.path.join('results', args.id)
 if not os.path.exists(results_dir):
   os.makedirs(results_dir)
@@ -110,10 +136,6 @@ def save_memory(memory, memory_path, disable_bzip):
     with bz2.open(memory_path, 'wb') as zipped_pickle_file:
       pickle.dump(memory, zipped_pickle_file)
 
-if args.reptile_k > 0:
-  args.separate_buffer = True
-  print('Using Reptile with inner step size: {}'.format(args.reptile_k))
-  args.id = f'Reptile{args.reptile_k}-' + args.id
 # Environment
 cfg = OmegaConf.load('conf/config.yaml').env
 cfg.games = list(args.games)
@@ -216,6 +238,10 @@ else:
   for T in trange(total_T, args.T_max + 1):
     if done:
       state = env.reset()
+
+    if T == int(args.unfreeze_conv_when) and args.load_conv_only:
+      dqn.online_net.unfreeze_conv()
+      print('unfreezing conv layers at T {}'.format(T))
 
     if T % args.replay_frequency == 0:
       dqn.reset_noise()  # Draw a new set of noisy weights
