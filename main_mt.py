@@ -30,6 +30,12 @@ GAME_NAMES = {
   'up_n_down': 'UpNDown',
   'krull': 'Krull',
   'frostbite': 'FrostBite',
+  'ms_pacman': 'MsPacman',
+}
+
+GAME_SETS = {
+  '8task-v1': ['asteroids', 'alien', 'beam_rider', 'frostbite', 'krull', 'ms_pacman', 'road_runner', 'seaquest'],
+  '8task-v2': ['asteroids', 'alien', 'beam_rider', 'breakout', 'frostbite', 'krull', 'road_runner', 'seaquest']
 }
 
 # Note that hyperparameters may originally be reported in ATARI game frames instead of agent steps
@@ -38,7 +44,7 @@ parser.add_argument('--id', type=str, default='default', help='Experiment ID')
 parser.add_argument('--seed', type=int, default=123, help='Random seed')
 parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
 # parser.add_argument('--game', type=str, default='space_invaders', choices=atari_py.list_games(), help='ATARI game')
-parser.add_argument('--T-max', type=int, default=int(5e6), metavar='STEPS', help='Number of training steps (4x number of frames)')
+parser.add_argument('--T_max', type=int, default=int(5e6), metavar='STEPS', help='Number of training steps (4x number of frames)')
 parser.add_argument('--max-episode-length', type=int, default=int(108e3), metavar='LENGTH', help='Max episode length in game frames (0 to disable)')
 parser.add_argument('--history-length', type=int, default=4, metavar='T', help='Number of consecutive states processed')
 parser.add_argument('--architecture', type=str, default='canonical', choices=['canonical', 'data-efficient'], metavar='ARCH', help='Network architecture')
@@ -62,7 +68,7 @@ parser.add_argument('--batch_size', type=int, default=32, metavar='SIZE', help='
 parser.add_argument('--norm-clip', type=float, default=10, metavar='NORM', help='Max L2 norm for gradient clipping')
 parser.add_argument('--learn_start', type=int, default=int(20e3), metavar='STEPS', help='Number of steps before starting training')
 parser.add_argument('--evaluate', action='store_true', help='Evaluate only')
-parser.add_argument('--evaluation_interval', type=int, default=20000, metavar='STEPS', help='Number of training steps between evaluations')
+parser.add_argument('--evaluation_interval', type=int, default=int(2e4), metavar='STEPS', help='Number of training steps between evaluations')
 parser.add_argument('--evaluation_episodes', type=int, default=10, metavar='N', help='Number of evaluation episodes to average over')
 # TODO: Note that DeepMind's evaluation method is running the latest agent for 500K frames ever every 1M steps
 parser.add_argument('--evaluation-size', type=int, default=500, metavar='N', help='Number of transitions to use for validating Q')
@@ -81,7 +87,9 @@ parser.add_argument('--reptile_k', type=int, default=0, help='set > 0 for reptil
 parser.add_argument('--load_memory', action='store_true', help='Load memory from file, fintuning runs dont need to load memory')
 parser.add_argument('--normalize_reward', action='store_true', help='Normalize rewards')
 parser.add_argument('--load_conv_only', action='store_true', help='Load convolutional layers only')
+parser.add_argument('--reinit_fc', type=int, default=1, help='Reinitialize fully connected layers, 0 means no reinit')
 parser.add_argument('--unfreeze_conv_when', type=int, default=50e6, help='Unfreeze convolutional layers when this many steps have passed')
+parser.add_argument('--pad_action_space', type=int, default=0, help='Pad action space with zeros, use for preparing single-task agent to fine-tune')
 # Setup
 args = parser.parse_args()
 
@@ -90,10 +98,20 @@ if args.reptile_k > 0:
   print('Using Reptile with inner step size: {}'.format(args.reptile_k))
   args.id = f'Reptile{args.reptile_k}-' + args.id
 
-if len(args.games) > 1:
-  args.id = f'{len(args.games)}Task-' + args.id
+if len(args.games) == 1 and GAME_SETS.get(args.games[0], None) is not None:
+  print('Using pre-defined game set: {}'.format(args.games[0]))
+  key = args.games[0]
+  args.games = GAME_SETS[key]
+  args.id = f'{key}-' + args.id
+  args.id += f'-B{args.batch_size}' + ('-NormRew' if args.normalize_reward else '')
+
 else:
   args.id = '{}-'.format(GAME_NAMES[args.games[0]]) + args.id
+
+args.id += '-SepBuf' if args.separate_buffer else ''
+
+if args.model is not None:
+  args.id += "-FreezeConv-ReInit{}FC-UnfreezeAt{:0.0e}".format(args.reinit_fc, args.unfreeze_conv_when) if args.load_conv_only else '-NoFreezeConv'
 
 print(' ' * 26 + 'Options')
 for k, v in vars(args).items():
@@ -146,19 +164,23 @@ if len(games) > 1:
   if args.num_games_per_batch == 1:
     print('Default setting num_games_per_batch to {} for multi-task runs'.format(len(games)))
     args.num_games_per_batch = len(games)
+
+if args.model is not None:
+  print('Pad test-time environment action space to 18 for finetuning')
+  cfg.modify_action_size = 18 
+
+if args.pad_action_space > 0:
+  print('Warning! Padding action space with {} zeros'.format(args.pad_action_space))
+  cfg.modify_action_size = args.pad_action_space
+
 env = MultiTaskEnv(cfg)
 env.train()
 action_space = env.action_space()
 if not args.no_wb:
   wandb.init(project='Rainbow', group='multitask', name=args.id)
   wandb.config.update(vars(args))
+
 # Agent
-if args.model is not None:
-  # recreate env! 
-  cfg.modify_action_size = 18 
-  env = MultiTaskEnv(cfg)
-  print('Resettiing environment action space', env.action_space())
-  env.train()
 dqn = MultiTaskAgent(args, env)
 
 metrics = {} 

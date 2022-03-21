@@ -85,12 +85,18 @@ class DQN(nn.Module):
         module.reset_noise()
 
   def reinit_fc(self, args):
-    print('Reinitializing 4 fully connected layers')
-    self.fc_h_v = NoisyLinear(self.conv_output_size, args.hidden_size, std_init=args.noisy_std)
-    self.fc_h_a = NoisyLinear(self.conv_output_size, args.hidden_size, std_init=args.noisy_std)
-    self.fc_z_v = NoisyLinear(args.hidden_size, self.atoms, std_init=args.noisy_std)
-    self.fc_z_a = NoisyLinear(args.hidden_size, self.action_space * self.atoms, std_init=args.noisy_std)
-
+    if args.reinit_fc == 0:
+      print('Not reinitializing any fc. layers')
+      return 
+    if args.reinit_fc >= 1:
+      print('Reinitializing last fully connected layers')
+      self.fc_z_v = NoisyLinear(args.hidden_size, self.atoms, std_init=args.noisy_std)
+      self.fc_z_a = NoisyLinear(args.hidden_size, self.action_space * self.atoms, std_init=args.noisy_std)
+    if args.reinit_fc == 2:
+      print('Reinitializing early fully connected layers')
+      self.fc_h_v = NoisyLinear(self.conv_output_size, args.hidden_size, std_init=args.noisy_std)
+      self.fc_h_a = NoisyLinear(self.conv_output_size, args.hidden_size, std_init=args.noisy_std)
+    
   def freeze_conv(self):
     print('Freezing all conv. layers')
     for p in self.convs.parameters():

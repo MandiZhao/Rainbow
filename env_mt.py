@@ -55,6 +55,7 @@ class MultiTaskEnv():
  
     max_action_set = max([len(a) for a in game_to_actions])
     if cfg.modify_action_size > 0:
+      assert cfg.modify_action_size >= max_action_set, 'Modify action size must be at least as big as max action size'
       max_action_set = cfg.modify_action_size
     # print('Padding multi-task env with max action set size: {}'.format(max_action_set))
     self.game_to_actions = []
