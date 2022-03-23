@@ -38,6 +38,10 @@ GAME_SETS = {
   '8task-v2': ['asteroids', 'alien', 'beam_rider', 'breakout', 'frostbite', 'krull', 'road_runner', 'seaquest']
 }
 
+DATA_DIR = [
+  '/home/mandi/Rainbow/results',
+  '/shared/mandi/rainbow_data'
+]
 # Note that hyperparameters may originally be reported in ATARI game frames instead of agent steps
 parser = argparse.ArgumentParser(description='Rainbow')
 parser.add_argument('--id', type=str, default='default', help='Experiment ID')
@@ -109,9 +113,19 @@ else:
   args.id = '{}-'.format(GAME_NAMES[args.games[0]]) + args.id
 
 args.id += '-SepBuf' if args.separate_buffer else ''
+args.id += '-Seed{}'.format(args.seed)
 
 if args.model is not None:
   args.id += "-FreezeConv-ReInit{}FC-UnfreezeAt{:0.0e}".format(args.reinit_fc, args.unfreeze_conv_when) if args.load_conv_only else '-NoFreezeConv'
+  print('Pad test-time environment action space to 18 for finetuning')
+  
+  if len(args.model.split('/')) == 2:
+    for append_dir in DATA_DIR:
+      full_path = os.path.join(append_dir, args.model)
+      if os.path.exists(full_path):
+        print('Prepending model path to: {}'.format(full_path))
+        args.model = full_path
+        break
 
 print(' ' * 26 + 'Options')
 for k, v in vars(args).items():
@@ -166,9 +180,7 @@ if len(games) > 1:
     args.num_games_per_batch = len(games)
 
 if args.model is not None:
-  print('Pad test-time environment action space to 18 for finetuning')
   cfg.modify_action_size = 18 
-
 if args.pad_action_space > 0:
   print('Warning! Padding action space with {} zeros'.format(args.pad_action_space))
   cfg.modify_action_size = args.pad_action_space
