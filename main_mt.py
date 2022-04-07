@@ -12,6 +12,7 @@ import torch
 from tqdm import trange
 
 from agent_mt import MultiTaskAgent
+from agent_pearl import PearlAgent
 from env import Env
 from memory import ReplayMemory
 from test import test, test_all_games
@@ -22,20 +23,27 @@ import wandb
 
 GAME_NAMES = {
   'alien': 'Alien',
-  'breakout': 'Breakout',
-  'pong': 'Pong',
   'asteroids': 'Asteroids',
+  'breakout': 'Breakout',
+  'kangaroo': 'Kangaroo',
+  'demon_attack': 'DemonAttack',
+  'pong': 'Pong',
   'qbert': 'Qbert',
   'seaquest': 'Seaquest',
   'up_n_down': 'UpNDown',
   'krull': 'Krull',
   'frostbite': 'FrostBite',
   'ms_pacman': 'MsPacman',
+  'jamesbond': 'JamesBond',
 }
 
 GAME_SETS = {
   '8task-v1': ['asteroids', 'alien', 'beam_rider', 'frostbite', 'krull', 'ms_pacman', 'road_runner', 'seaquest'],
-  '8task-v2': ['asteroids', 'alien', 'beam_rider', 'breakout', 'frostbite', 'krull', 'road_runner', 'seaquest']
+  '8task-v2': ['asteroids', 'alien', 'beam_rider', 'breakout', 'frostbite', 'krull', 'road_runner', 'seaquest'],
+  '20-task': ['asteroids', 'alien', 'beam_rider', 'breakout', 'frostbite'] + \
+       ['krull', 'road_runner', 'seaquest', 'amidar', 'assault'] + \
+       ['asterix', 'bank_heist', 'boxing', 'chopper_command', 'private_eye'] + \
+       ['crazy_climber', 'kung_fu_master', 'freeway', 'gopher', 'hero']
 }
 
 DATA_DIR = [
@@ -51,7 +59,7 @@ parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
 parser.add_argument('--T_max', type=int, default=int(5e6), metavar='STEPS', help='Number of training steps (4x number of frames)')
 parser.add_argument('--max-episode-length', type=int, default=int(108e3), metavar='LENGTH', help='Max episode length in game frames (0 to disable)')
 parser.add_argument('--history-length', type=int, default=4, metavar='T', help='Number of consecutive states processed')
-parser.add_argument('--architecture', type=str, default='canonical', choices=['canonical', 'data-efficient'], metavar='ARCH', help='Network architecture')
+parser.add_argument('--architecture', type=str, default='canonical', choices=['canonical', 'data-efficient', 'data-effx2'], metavar='ARCH', help='Network architecture')
 parser.add_argument('--hidden-size', type=int, default=512, metavar='SIZE', help='Network hidden size')
 parser.add_argument('--noisy-std', type=float, default=0.1, metavar='σ', help='Initial standard deviation of noisy linear layers')
 parser.add_argument('--atoms', type=int, default=51, metavar='C', help='Discretised size of value distribution')
@@ -75,7 +83,7 @@ parser.add_argument('--evaluate', action='store_true', help='Evaluate only')
 parser.add_argument('--evaluation_interval', type=int, default=int(2e4), metavar='STEPS', help='Number of training steps between evaluations')
 parser.add_argument('--evaluation_episodes', type=int, default=10, metavar='N', help='Number of evaluation episodes to average over')
 # TODO: Note that DeepMind's evaluation method is running the latest agent for 500K frames ever every 1M steps
-parser.add_argument('--evaluation-size', type=int, default=500, metavar='N', help='Number of transitions to use for validating Q')
+parser.add_argument('--evaluation_size', type=int, default=500, metavar='N', help='Number of transitions to use for validating Q')
 parser.add_argument('--render', action='store_true', help='Display screen (testing only)')
 parser.add_argument('--enable-cudnn', action='store_true', help='Enable cuDNN (faster but nondeterministic)')
 parser.add_argument('--checkpoint_interval', type=int, default=500000, help='How often to checkpoint the model, defaults to 0.5M ')
@@ -94,6 +102,13 @@ parser.add_argument('--load_conv_only', action='store_true', help='Load convolut
 parser.add_argument('--reinit_fc', type=int, default=1, help='Reinitialize fully connected layers, 0 means no reinit')
 parser.add_argument('--unfreeze_conv_when', type=int, default=50e6, help='Unfreeze convolutional layers when this many steps have passed')
 parser.add_argument('--pad_action_space', type=int, default=0, help='Pad action space with zeros, use for preparing single-task agent to fine-tune')
+
+# PEARL
+parser.add_argument('--pearl', action='store_true', help='Use PEARL')
+parser.add_argument('--pearl_z_size', type=int, default=32, help='latent size for PEARL')
+parser.add_argument('--pearl_hidden_size', type=int, default=512, help='hidden size for PEARL')
+parser.add_argument('--context_length', type=int, default=100, help='num. of transitions to sample from context')
+parser.add_argument('--context_window', type=int, default=10, help='context buffer window size')
 # Setup
 args = parser.parse_args()
 
@@ -102,6 +117,9 @@ if args.reptile_k > 0:
   print('Using Reptile with inner step size: {}'.format(args.reptile_k))
   args.id = f'Reptile{args.reptile_k}-' + args.id
 
+if args.pearl: 
+  args.separate_buffer = True
+  args.id = f'PEARL-' + args.id
 if len(args.games) == 1 and GAME_SETS.get(args.games[0], None) is not None:
   print('Using pre-defined game set: {}'.format(args.games[0]))
   key = args.games[0]
@@ -193,7 +211,10 @@ if not args.no_wb:
   wandb.config.update(vars(args))
 
 # Agent
-dqn = MultiTaskAgent(args, env)
+if args.pearl:
+  dqn = PearlAgent(args, env)
+else:
+  dqn = MultiTaskAgent(args, env)
 
 metrics = {} 
 for _id, game in enumerate(games):
@@ -226,20 +247,28 @@ priority_weight_increase = (1 - args.priority_weight) / (args.T_max - args.learn
 
 
 # Construct validation memory
-val_mem = ReplayMemory(args, args.evaluation_size)
+# val_mem = ReplayMemory(args, args.evaluation_size)
+if args.separate_buffer:
+  val_mems = dict()
+  for i in range(env.num_games):
+    val_mems[i] = ReplayMemory(args, int(args.memory_capacity / env.num_games))
+else:
+  val_mems = {0: ReplayMemory(args, args.memory_capacity)}
 T, done = 0, True
 while T < args.evaluation_size:
   if done:
     state = env.reset()
 
   next_state, _, done, info = env.step(np.random.randint(0, action_space))
+  buffer_idx = info.get('game_id') if args.separate_buffer else 0
+  val_mem = val_mems[buffer_idx]
   val_mem.append(state, -1, 0.0, done)
   state = next_state
   T += 1
 
 if args.evaluate:
   dqn.eval()  # Set DQN (online network) to evaluation mode
-  avg_rewards, avg_Qs = test_all_games(games, args, 0, dqn, val_mem, metrics, results_dir, evaluate=True)  # Test
+  avg_rewards, avg_Qs = test_all_games(games, args, 0, dqn, val_mems, metrics, results_dir, evaluate=True)  # Test
   for i, game in enumerate(games):
     print('Avg. reward: ' + str(avg_rewards[i]) + ' | Avg. Q: ' + str(avg_Qs[i]))
 else:
@@ -256,13 +285,17 @@ else:
 
       if env_T % args.replay_frequency == 0:
         dqn.reset_noise()  # Draw a new set of noisy weights
-
-      action = dqn.act(state)  # Choose an action greedily (with noisy weights)
+      buffer_idx = env.get_current_game_id() if args.separate_buffer else 0
+      mem = mems[buffer_idx]
+      if args.pearl:
+        action = dqn.act(state, mem)
+      else:
+        action = dqn.act(state)  # Choose an action greedily (with noisy weights)
+      
       next_state, reward, done, info = env.step(action)  # Step
       if args.reward_clip > 0:
         reward = max(min(reward, args.reward_clip), -args.reward_clip)  # Clip rewards
-      buffer_idx = info.get('game_id') if args.separate_buffer else 0
-      mem = mems[buffer_idx]
+      
       mem.append(state, action, reward, done)  # Append transition to memory
       total_T += 1
     print('done appending to buffer index {}'.format(buffer_idx))
@@ -279,15 +312,18 @@ else:
 
     if T % args.replay_frequency == 0:
       dqn.reset_noise()  # Draw a new set of noisy weights
-
-    action = dqn.act(state)  # Choose an action greedily (with noisy weights)
-    next_state, reward, done, info = env.step(action)  # Step
-    if args.reward_clip > 0:
-      reward = max(min(reward, args.reward_clip), -args.reward_clip)  # Clip rewards
-    buffer_idx = info.get('game_id') if args.separate_buffer else 0
+    buffer_idx = env.get_current_game_id() if args.separate_buffer else 0
     mem = mems[buffer_idx]
     mem.append(state, action, reward, done)  # Append transition to memory
 
+    if args.pearl:
+      action = dqn.act(state, mem)
+    else:
+      action = dqn.act(state)  # Choose an action greedily (with noisy weights)
+    next_state, reward, done, info = env.step(action)  # Step
+    if args.reward_clip > 0:
+      reward = max(min(reward, args.reward_clip), -args.reward_clip)  # Clip rewards
+    
     # Train and test
     # if T >= args.learn_start:
     mem.priority_weight = min(mem.priority_weight + priority_weight_increase, 1)  # Anneal importance sampling weight β to 1
@@ -296,14 +332,16 @@ else:
       if args.reptile_k > 0:
         frac = T/args.T_max
         dqn.learn_reptile(mems=mems, frac_done=frac, inner_steps=args.reptile_k)
-      elif args.separate_buffer:
-        dqn.learn_multi_buffer(mems)
       else:
-        dqn.learn_single_buffer(mem)  # Train with n-step distributional double-Q learning
+        dqn.learn(mems)
+      # elif args.separate_buffer:
+      #   dqn.learn_multi_buffer(mems)
+      # else:
+      #   dqn.learn_single_buffer(mem)  # Train with n-step distributional double-Q learning
 
     if T % args.evaluation_interval == 0:
       dqn.eval()  # Set DQN (online network) to evaluation mode
-      test_all_games(games, cfg, args, T, dqn, val_mem, metrics, results_dir)  # Test
+      test_all_games(games, cfg, args, T, dqn, val_mems, metrics, results_dir)  # Test
       
       tolog = {'Env Step': T}
       log_string = f"T = {T}/{args.T_max}"

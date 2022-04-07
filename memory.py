@@ -3,10 +3,11 @@ from __future__ import division
 import numpy as np
 import torch
 
-
 Transition_dtype = np.dtype([('timestep', np.int32), ('state', np.uint8, (84, 84)), ('action', np.int32), ('reward', np.float32), ('nonterminal', np.bool_)])
 blank_trans = (0, np.zeros((84, 84), dtype=np.uint8), 0, 0.0, False)
 
+Context_dtype = np.dtype([('state', np.uint8, (4, 84, 84)), ('action', np.int32), ('reward', np.float32)])
+blank_context = (np.zeros((4, 84, 84), dtype=np.uint8), 0, 0.0)
 
 # Segment tree data structure where parent node values are sum/max of children node values
 class SegmentTree():
@@ -68,7 +69,6 @@ class SegmentTree():
       self.reward_stat[1] = 1
     # print(self.reward_stat)
 
-
   # Searches for the location of values in sum tree
   def _retrieve(self, indices, values):
     children_indices = (indices * 2 + np.expand_dims([1, 2], axis=1)) # Make matrix of children indices
@@ -97,6 +97,37 @@ class SegmentTree():
   def total(self):
     return self.sum_tree[0]
 
+class ContextBuffer():
+  def __init__(self, args):
+    size = args.context_length
+    self.size = size 
+    self.data = np.array([blank_context] * size, dtype=Context_dtype)
+    self.index = 0
+    self.full = False
+    self.device = args.device
+
+  def append(self, data):
+    self.data[self.index] = data  # Store data in underlying data structure
+    self.index = (self.index + 1) % self.size  # Update index
+    self.full = self.full or self.index == 0  # Save when capacity reached
+  
+  def sample(self, batch_size):
+    if self.full:
+      data_idxs = np.random.randint(0, self.size, size=batch_size)
+    elif self.index == 0:
+      return None # Buffer is empty
+    elif 0 < self.index < batch_size:
+      data_idxs = np.arange(self.index)
+    else:
+      data_idxs = np.random.randint(0, self.index, size=batch_size)
+    data = self.data[data_idxs]
+
+    states = torch.tensor(data['state'], device=self.device, dtype=torch.float32).div_(255)
+    # Discrete actions to be used as index
+    actions = torch.tensor(data['action'], dtype=torch.int64, device=self.device)
+    rewards = torch.tensor(data['reward'], dtype=torch.float32, device=self.device)
+    return {'state': states, 'action': actions, 'reward': rewards}
+
 class ReplayMemory():
   def __init__(self, args, capacity):
     self.device = args.device
@@ -110,12 +141,19 @@ class ReplayMemory():
     self.n_step_scaling = torch.tensor([self.discount ** i for i in range(self.n)], dtype=torch.float32, device=self.device)  # Discount-scaling vector for n-step returns
     self.transitions = SegmentTree(capacity)  # Store transitions in a wrap-around cyclic buffer within a sum tree for querying priorities
     self.normalize_reward = args.normalize_reward
+    
+    self.context_buffer = None
+    if args.pearl:
+      self.context_buffer = ContextBuffer(args)
 
   # Adds state and action at time t, reward and terminal at time t + 1
   def append(self, state, action, reward, terminal):
-    state = state[-1].mul(255).to(dtype=torch.uint8, device=torch.device('cpu'))  # Only store last frame and discretise to save memory
+    context_state = state.mul(255).to(dtype=torch.uint8, device=torch.device('cpu'))
+    state = context_state[-1] # Only store last frame and discretise to save memory
     self.transitions.append((self.t, state, action, reward, not terminal), self.transitions.max)  # Store new transition with maximum priority
     self.t = 0 if terminal else self.t + 1  # Start new episodes with t = 0
+    if self.context_buffer is not None:
+      self.context_buffer.append((context_state, action, reward))
 
   # Returns the transitions with blank states where appropriate
   def _get_transitions(self, idxs):
@@ -134,10 +172,13 @@ class ReplayMemory():
   def _get_samples_from_segments(self, batch_size, p_total):
     segment_length = p_total / batch_size  # Batch size number of segments, based on sum over all probabilities
     segment_starts = np.arange(batch_size) * segment_length
+    # print('Segment starts:', segment_starts, 'Segment length:', segment_length)
     valid = False
     while not valid: 
       samples = np.random.uniform(0.0, segment_length, [batch_size]) + segment_starts  # Uniformly sample from within all segments
       probs, idxs, tree_idxs = self.transitions.find(samples)  # Retrieve samples from tree with un-normalised probability
+      idxs[(self.transitions.index - idxs) % self.capacity <= self.n] = self.n+1
+      idxs[(idxs - self.transitions.index) % self.capacity < self.history] = self.n + 1
       if np.all((self.transitions.index - idxs) % self.capacity > self.n) and np.all((idxs - self.transitions.index) % self.capacity >= self.history) and np.all(probs != 0):
         valid = True  # Note that conditions are valid but extra conservative around buffer index 0
     # Retrieve all required transition data (from t - h to t + n)
@@ -150,9 +191,7 @@ class ReplayMemory():
     actions = torch.tensor(np.copy(transitions['action'][:, self.history - 1]), dtype=torch.int64, device=self.device)
     # Calculate truncated n-step discounted returns R^n = Σ_k=0->n-1 (γ^k)R_t+k+1 (note that invalid nth next states have reward 0)
     if self.normalize_reward:
-      [rew_mean, rew_std] = self.transitions.reward_stat
-      # if np.any(np.isnan(rew_std)) or (not np.all(np.isfinite(rew_std))):
-      #   print(rew_std) 
+      [rew_mean, rew_std] = self.transitions.reward_stat 
       transitions['reward'] = transitions['reward'] / rew_std # + 1e-8
       if np.any(np.isnan(transitions['reward'])):
         print('got nan rew!', rew_std, transitions['reward'])
@@ -172,6 +211,10 @@ class ReplayMemory():
     weights = (capacity * probs) ** -self.priority_weight  # Compute importance-sampling weights w
     weights = torch.tensor(weights / weights.max(), dtype=torch.float32, device=self.device)  # Normalise by max importance-sampling weight from batch
     return tree_idxs, states, actions, returns, next_states, nonterminals, weights
+
+  def sample_context(self, window):
+    assert self.context_buffer is not None, 'Context buffer not initialised.'
+    return self.context_buffer.sample(window)
 
   def update_priorities(self, idxs, priorities):
     priorities = np.power(priorities, self.priority_exponent)

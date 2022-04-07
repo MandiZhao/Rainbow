@@ -172,8 +172,11 @@ class MultiTaskEnv():
     return self.max_action_size
     # return len(self.actions)
 
+  def get_current_game_id(self):
+    return self.current_id
+
   def render(self):
-    cv2.imshow('screen', self.ale.getScreenRGB()[:, :, ::-1])
+    cv2.imshow('screen', self.ale)
     cv2.waitKey(1)
 
   def close(self):
@@ -181,14 +184,40 @@ class MultiTaskEnv():
 
 
 if __name__ == '__main__':
-  cfg = OmegaConf.load('conf/config.yaml')
-  print(cfg)
-  print(cfg.env.history_length)
-  env = MultiTaskEnv(cfg.env)
-  print(env.action_space())
+  # cfg = OmegaConf.load('conf/config.yaml')
+  # print(cfg)
+  # print(cfg.env.history_length)
+  # env = MultiTaskEnv(cfg.env)
+  # print(env.action_space())
   # for _ in range(10):
   #   obs = env.reset()
 
   #   for _ in range(10):
   #     env.step(1)
   #     print(env.current_game, env.ale.lives())
+  import matplotlib.pyplot as plt
+  games = ['asteroids', 'alien', 'beam_rider', 'breakout', 'frostbite', 'krull', 'road_runner', 'seaquest'] + \
+          ['amidar', 'assault', 'asterix', 'bank_heist', 'boxing', 'chopper_command', 'road_runner', 'crazy_climber'] + \
+          ['demon_attack', 'freeway', 'gopher', 'hero']
+
+  # fig, axs = plt.subplots(5, 4, figsize=(50, 50))
+  games = ['asteroids', 'alien', 'beam_rider', 'breakout', 'frostbite'] 
+  games = ['krull', 'road_runner', 'seaquest', 'amidar', 'assault'] 
+  games = ['asterix', 'bank_heist', 'boxing', 'chopper_command', 'private_eye']
+  games = ['crazy_climber', 'kung_fu_master', 'freeway', 'gopher', 'hero']
+
+  # test demon_attack (similar to assault), kangaroo, similar to amidar
+  games = ['jamesbond', 'kangaroo', 'demon_attack']
+  obs_all = []
+
+  for i, name in enumerate(games):
+    env = atari_py.ALEInterface()
+    env.loadROM(atari_py.get_game_path(name))
+    env.reset_game() # getScreenRGB()[:, :, ::-1] # (210, 160, 3)
+    obs = env.getScreenGrayscale()[:,:,0]
+    # plt.imsave('pngs/{}_gray.png'.format(name), obs, cmap='gray')
+    obs_all.append(obs)
+
+  obs_all = np.concatenate(obs_all, axis=1)
+  plt.imsave(f"pngs/{'-'.join(games)}.png", obs_all, cmap='gray')
+

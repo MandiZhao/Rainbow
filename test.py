@@ -59,10 +59,12 @@ def test(args, T, dqn, val_mem, metrics, results_dir, evaluate=False, plot_line=
   # Return average reward and Q-value
   return avg_reward, avg_Q
 
-def test_all_games(games, env_cfg, args, T, dqn, val_mem, metrics, results_dir, evaluate=False):
+def test_all_games(games, env_cfg, args, T, dqn, val_mems, metrics, results_dir, evaluate=False):
+  assert len(games) == len(val_mems)
   env = MultiTaskEnv(env_cfg)
   env.eval()
   for _id, game in enumerate(games): 
+    val_mem = val_mems[_id]
     game_metrics = metrics[f'game_{game}'] # metrics['game_{:02d}'.format(_id)]
     env.reset()
     env._set_game(_id)
@@ -75,14 +77,16 @@ def test_all_games(games, env_cfg, args, T, dqn, val_mem, metrics, results_dir, 
       while True:
         if done:
           state, reward_sum, done = env.reset(resample_game=False), 0, False
-
-        action = dqn.act_e_greedy(state)  # Choose an action ε-greedily
+        if args.pearl:
+          action = dqn.act_e_greedy(state, val_mem)
+        else:
+          action = dqn.act_e_greedy(state)  # Choose an action ε-greedily
         state, reward, done, info = env.step(action)  # Step
         assert info.get('game_id') == _id, 'Game ID mismatch: {} != {}'.format(info.get('game_id'), _id)
+        val_mem.append(state, action, reward, done)
         reward_sum += reward
         if args.render:
           env.render()
-
         if done:
           T_rewards.append(reward_sum) 
           break
@@ -90,8 +94,12 @@ def test_all_games(games, env_cfg, args, T, dqn, val_mem, metrics, results_dir, 
     env.close()
 
     # Test Q-values over validation memory
+    
     for state in val_mem:  # Iterate over valid states
-      T_Qs.append(dqn.evaluate_q(state))
+      if args.pearl:
+        T_Qs.append(0) #dqn.evaluate_q(state, val_mem))
+      else:
+        T_Qs.append(dqn.evaluate_q(state))
 
     avg_reward, avg_Q = sum(T_rewards) / len(T_rewards), sum(T_Qs) / len(T_Qs)
     if not evaluate:
