@@ -20,22 +20,28 @@ from test import test, test_all_games
 from env_mt import MultiTaskEnv
 from omegaconf import DictConfig, OmegaConf
 import wandb 
-
 GAME_NAMES = {
-  'alien': 'Alien',
-  'asteroids': 'Asteroids',
-  'breakout': 'Breakout',
-  'kangaroo': 'Kangaroo',
-  'demon_attack': 'DemonAttack',
-  'pong': 'Pong',
-  'qbert': 'Qbert',
-  'seaquest': 'Seaquest',
-  'up_n_down': 'UpNDown',
-  'krull': 'Krull',
-  'frostbite': 'FrostBite',
-  'ms_pacman': 'MsPacman',
-  'jamesbond': 'JamesBond',
-}
+   'alien': 'Alien',
+   'amidar': 'Amidar',
+   'assault': 'Assault',
+   'bank_heist': 'BankHeist',
+   'battle_zone': 'BattleZone',
+   'breakout': 'Breakout',
+   'enduro': 'Enduro',
+   'pong': 'Pong',
+   'asteroids': 'Asteroids',
+   'qbert': 'Qbert',
+   'seaquest': 'Seaquest',
+   'space_invaders': 'SpaceInvaders',
+   'up_n_down': 'UpNDown',
+   'kangaroo': 'Kangaroo',
+   'demon_attack': 'DemonAttack',
+   'krull': 'Krull',
+   'frostbite': 'FrostBite',
+   'ms_pacman': 'MsPacman',
+   'jamesbond': 'JamesBond',
+   'demon_attack': 'DemonAttack'
+ }
 
 GAME_SETS = {
   '8task-v1': ['asteroids', 'alien', 'beam_rider', 'frostbite', 'krull', 'ms_pacman', 'road_runner', 'seaquest'],
