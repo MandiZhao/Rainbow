@@ -279,6 +279,10 @@ if args.evaluate:
     print('Avg. reward: ' + str(avg_rewards[i]) + ' | Avg. Q: ' + str(avg_Qs[i]))
 else:
   # Training loop
+  print('Evaluate before training')
+  dqn.eval()  # Set DQN (online network) to evaluation mode
+  test_all_games(games, cfg, args, 0, dqn, val_mems, metrics, results_dir)  # Test
+      
   dqn.train()
   total_T = 0
   for _id, game in enumerate(env.games):

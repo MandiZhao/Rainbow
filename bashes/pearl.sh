@@ -13,7 +13,11 @@ taskset -c $CPUS python main_mt.py --target-update 2000 \
 
 # FT: set lr = 0
 GAME=pong
-MODEL=/shared/mandi/rainbow_data/8task-v2-PEARL-DataEff-MT-B32-SepBuf-Seed123/checkpoint_100000.pth
+for GAME in ms_pacman kangaroo jamesbond # pong battle_zone up_n_down 
+do
+MODEL=/shared/mandi/rainbow_data/8task-v2-PEARL-DataEff-MT-B32-SepBuf-Seed123/checkpoint_450000.pth
+for SEED in 312 132 123 321 213
+do
 taskset -c $CPUS python main_mt.py --target-update 2000 --T_max 100000 \
                --memory-capacity 100000 \
                --replay_frequency 1 \
@@ -24,5 +28,6 @@ taskset -c $CPUS python main_mt.py --target-update 2000 --T_max 100000 \
                --evaluation_interval 5000 \
                --id DataEff-FineTune-PEARL --seed $SEED \
                --games $GAME --model $MODEL \
-               --learn_start 1600 --pearl --evaluation_size 1000 
-
+               --learn_start 1600 --pearl --evaluation_size 1000 --batch_size 2  
+done
+done
