@@ -105,6 +105,7 @@ parser.add_argument('--reptile_k', type=int, default=0, help='set > 0 for reptil
 parser.add_argument('--load_memory', action='store_true', help='Load memory from file, fintuning runs dont need to load memory')
 parser.add_argument('--normalize_reward', action='store_true', help='Normalize rewards')
 parser.add_argument('--load_conv_only', action='store_true', help='Load convolutional layers only')
+parser.add_argument('--load_conv_fc_h', action='store_true', help='Load convolutional layers and hidden FC layers')
 parser.add_argument('--reinit_fc', type=int, default=1, help='Reinitialize fully connected layers, 0 means no reinit')
 parser.add_argument('--unfreeze_conv_when', type=int, default=50e6, help='Unfreeze convolutional layers when this many steps have passed')
 parser.add_argument('--pad_action_space', type=int, default=0, help='Pad action space with zeros, use for preparing single-task agent to fine-tune')
@@ -203,7 +204,7 @@ if len(games) > 1:
     print('Default setting num_games_per_batch to {} for multi-task runs'.format(len(games)))
     args.num_games_per_batch = len(games)
 
-if args.model is not None:
+if args.model is not None and args.reinit_fc == 0:
   cfg.modify_action_size = 18 
 if args.pad_action_space > 0:
   print('Warning! Padding action space with {} zeros'.format(args.pad_action_space))
@@ -226,6 +227,19 @@ metrics = {}
 for _id, game in enumerate(games):
   # metrics['game_{:02d}'.format(_id)] = {'steps': [], 'rewards': [], 'Qs': [], 'best_avg_reward': -float('inf')}
   metrics[f'game_{game}'] = {'steps': [], 'rewards': [], 'Qs': [], 'best_avg_reward': -float('inf')}
+
+def log_metrics(T):
+  tolog = {'Env Step': T}
+  log_string = f"T = {T}/{args.T_max}"
+  for key, v in metrics.items():
+    if 'game_' in key:
+      for kk, vv in v.items():
+        if not isinstance(vv, list):
+          tolog[key + '/' + kk] = vv 
+          tolog[kk + '/' + key] = vv 
+      log_string += f" {key} | Avg. reward: {v.get('avg_reward', 0):2f} | Avg. Q: {v.get('avg_q', 0):2f}"
+  if not args.no_wb: 
+    wandb.log(tolog)
 
 # If a model is provided, and evaluate is false, presumably we want to resume, so try to load memory
 # if args.model is not None and not args.evaluate and :
@@ -281,8 +295,10 @@ else:
   # Training loop
   print('Evaluate before training')
   dqn.eval()  # Set DQN (online network) to evaluation mode
+  print(dqn.action_space)
+  #raise ValueError('Not implemented')
   test_all_games(games, cfg, args, 0, dqn, val_mems, metrics, results_dir)  # Test
-      
+  log_metrics(0) 
   dqn.train()
   total_T = 0
   for _id, game in enumerate(env.games):
@@ -352,19 +368,7 @@ else:
     if T % args.evaluation_interval == 0:
       dqn.eval()  # Set DQN (online network) to evaluation mode
       test_all_games(games, cfg, args, T, dqn, val_mems, metrics, results_dir)  # Test
-      
-      tolog = {'Env Step': T}
-      log_string = f"T = {T}/{args.T_max}"
-      for key, v in metrics.items():
-        if 'game_' in key:
-          for kk, vv in v.items():
-            if not isinstance(vv, list):
-              tolog[key + '/' + kk] = vv 
-              tolog[kk + '/' + key] = vv 
-          log_string += f" {key} | Avg. reward: {v.get('avg_reward', 0):2f} | Avg. Q: {v.get('avg_q', 0):2f}"
-
-      if not args.no_wb: 
-        wandb.log(tolog)
+      log_metrics(T)
 
       # log(log_string, args)
       dqn.train()  # Set DQN (online network) back to training mode

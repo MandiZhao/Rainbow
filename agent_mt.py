@@ -31,15 +31,31 @@ class MultiTaskAgent():
           for old_key, new_key in (('conv1.weight', 'convs.0.weight'), ('conv1.bias', 'convs.0.bias'), ('conv2.weight', 'convs.2.weight'), ('conv2.bias', 'convs.2.bias'), ('conv3.weight', 'convs.4.weight'), ('conv3.bias', 'convs.4.bias')):
             state_dict[new_key] = state_dict[old_key]  # Re-map state dict for old pretrained models
             del state_dict[old_key]  # Delete old keys for strict load_state_dict
-        self.online_net.load_state_dict(state_dict)
+
+        if args.load_conv_only:
+          self.online_net.convs.load_state_dict({
+            '.'.join(k.split('.')[1:]): v for k, v in state_dict.items() if 'convs' in k})
+          self.online_net.freeze_conv()
+          print('Loaded only Conv. Layers and freezing convolutions')
+        elif args.load_conv_fc_h:
+          self.online_net.convs.load_state_dict({
+            '.'.join(k.split('.')[1:]): v for k, v in state_dict.items() if 'convs' in k})
+          self.online_net.freeze_conv()
+          
+          self.online_net.fc_h_a.load_state_dict({
+            '.'.join(k.split('.')[1:]): v for k, v in state_dict.items() if 'fc_h_a' in k})
+          self.online_net.fc_h_v.load_state_dict({
+            '.'.join(k.split('.')[1:]): v for k, v in state_dict.items() if 'fc_h_v' in k})
+          print('Loaded only Conv. Layers and Hidden FC layers')
+        else:
+          self.online_net.load_state_dict(state_dict)
         print("Loading pretrained model: " + args.model)
       else:  # Raise error if incorrect model path provided
         raise FileNotFoundError(args.model)
-      
-      if args.load_conv_only:
-        self.online_net.reinit_fc(args)
-        self.online_net.freeze_conv()
-        self.online_net = self.online_net.to(device=args.device)
+ 
+      # if args.reinit_fc > 0:
+      #   self.online_net.reinit_fc(args)
+      self.online_net = self.online_net.to(device=args.device)
         
 
     self.online_net.train()

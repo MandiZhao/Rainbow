@@ -78,7 +78,7 @@ MODEL=results/8task-v2-DataEff-MT-SepBuf-Seed123/checkpoint_400000.pth
 MODEL=results/8task-v2-DataEff-MT-B32-SepBuf-Seed123/checkpoint_500000.pth
 MODEL=/shared/mandi/rainbow_data/20-task-DataEff-MT-B32-SepBuf-Seed123/checkpoint_1000000.pth
 
-for GAME in pong # up_n_down ms_pacman # pong battle_zone
+for GAME in battle_zone # up_n_down ms_pacman # pong battle_zone
 do
 for SEED in 312 132 123 321 213
 do
@@ -96,6 +96,25 @@ taskset -c $CPUS python main_mt.py --target-update 2000 --T_max 100000 \
 done
 done
 
+MODEL=results/8task-v2-DataEff-MT-B32-SepBuf-Seed123/checkpoint_500000.pth
+for GAME in jamesbond # up_n_down ms_pacman # pong battle_zone
+do
+for SEED in 312 132 123 321 213
+do
+taskset -c $CPUS python main_mt.py --target-update 2000 --T_max 100000 \
+               --memory-capacity 100000 \
+               --replay_frequency 1 \
+               --multi-step 20 \
+               --architecture data-efficient \
+               --hidden-size 256 \
+               --learning_rate 0.0001 \
+               --evaluation_interval 5000 \
+               --id DataEff-Tune --seed $SEED \
+               --games $GAME --model $MODEL \
+               --learn_start 1600 --load_conv_only --reinit_fc 2 --unfreeze_conv_when 30000
+done
+done
+--load_conv_only --reinit_fc 0 --unfreeze_conv_when 20000 ;
 
 # ft from 1 task
 GAME1=Breakout

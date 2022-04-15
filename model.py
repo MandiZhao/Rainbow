@@ -15,6 +15,7 @@ class NoisyLinear(nn.Module):
     self.std_init = std_init
     self.weight_mu = nn.Parameter(torch.empty(out_features, in_features))
     self.weight_sigma = nn.Parameter(torch.empty(out_features, in_features))
+    # TODO: reinit noise or swap with eps greedy 
     self.register_buffer('weight_epsilon', torch.empty(out_features, in_features))
     self.bias_mu = nn.Parameter(torch.empty(out_features))
     self.bias_sigma = nn.Parameter(torch.empty(out_features))
