@@ -40,6 +40,10 @@ class NoisyLinear(nn.Module):
     self.weight_epsilon.copy_(epsilon_out.ger(epsilon_in))
     self.bias_epsilon.copy_(epsilon_out)
 
+  def reset_sigmas(self):
+    self.weight_sigma.data.fill_(self.std_init / math.sqrt(self.in_features)) 
+    self.bias_sigma.data.fill_(self.std_init / math.sqrt(self.out_features))
+
   def forward(self, input):
     if self.training:
       return F.linear(input, self.weight_mu + self.weight_sigma * self.weight_epsilon, self.bias_mu + self.bias_sigma * self.bias_epsilon)
@@ -88,6 +92,11 @@ class DQN(nn.Module):
     for name, module in self.named_children():
       if 'fc' in name:
         module.reset_noise()
+
+  def reset_sigmas(self):
+    for name, module in self.named_children():
+      if 'fc' in name:
+        module.reset_sigmas()
 
   def reinit_fc(self, args):
     if args.reinit_fc == 0:

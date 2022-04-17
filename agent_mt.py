@@ -23,7 +23,7 @@ class MultiTaskAgent():
     self.discount = args.discount
     self.norm_clip = args.norm_clip
 
-    self.online_net = DQN(args, self.action_space).to(device=args.device)
+    self.online_net = DQN(args, self.action_space).to(device=args.device) 
     if args.model:  # Load pretrained model if provided
       if os.path.isfile(args.model):
         state_dict = torch.load(args.model, map_location='cpu')  # Always load tensors onto CPU by default, will shift to GPU if necessary
@@ -50,6 +50,10 @@ class MultiTaskAgent():
         else:
           self.online_net.load_state_dict(state_dict)
         print("Loading pretrained model: " + args.model)
+        if args.reset_sigmas:
+          print('Re-initializing the NoisyLinear sigmas in online net')
+          self.online_net.reset_sigmas()
+        
       else:  # Raise error if incorrect model path provided
         raise FileNotFoundError(args.model)
  
