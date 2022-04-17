@@ -97,10 +97,12 @@ done
 done
 
 MODEL=results/8task-v2-DataEff-MT-B32-SepBuf-Seed123/checkpoint_500000.pth
-for GAME in jamesbond # up_n_down ms_pacman # pong battle_zone
-do
+GAME=jamesbond # up_n_down ms_pacman # pong battle_zone
+GSTEP=10_000
 for SEED in 312 132 123 321 213
 do
+for EPS in 0.1 0.2 0.3 0.4
+do 
 taskset -c $CPUS python main_mt.py --target-update 2000 --T_max 100000 \
                --memory-capacity 100000 \
                --replay_frequency 1 \
@@ -109,11 +111,12 @@ taskset -c $CPUS python main_mt.py --target-update 2000 --T_max 100000 \
                --hidden-size 256 \
                --learning_rate 0.0001 \
                --evaluation_interval 5000 \
-               --id DataEff-Tune --seed $SEED \
+               --id DataEff-EpsGreedy --seed $SEED \
                --games $GAME --model $MODEL \
-               --learn_start 1600 --load_conv_only --reinit_fc 2 --unfreeze_conv_when 30000
+               --learn_start 1600 --act_greedy_until $GSTEP --greedy_eps $EPS
+
 done
-done
+
 --load_conv_only --reinit_fc 0 --unfreeze_conv_when 20000 ;
 
 # ft from 1 task

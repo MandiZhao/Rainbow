@@ -109,7 +109,8 @@ parser.add_argument('--load_conv_fc_h', action='store_true', help='Load convolut
 parser.add_argument('--reinit_fc', type=int, default=1, help='Reinitialize fully connected layers, 0 means no reinit')
 parser.add_argument('--unfreeze_conv_when', type=int, default=50e6, help='Unfreeze convolutional layers when this many steps have passed')
 parser.add_argument('--pad_action_space', type=int, default=0, help='Pad action space with zeros, use for preparing single-task agent to fine-tune')
-
+parser.add_argument('--act_greedy_until', type=int, default=0, help='Act greedily until this many steps have passed')
+parser.add_argument('--greedy_eps', type=float, default=0.1, help='Act greedily every n steps')
 # PEARL
 parser.add_argument('--pearl', action='store_true', help='Use PEARL')
 parser.add_argument('--pearl_z_size', type=int, default=32, help='latent size for PEARL')
@@ -312,11 +313,12 @@ else:
       if env_T % args.replay_frequency == 0:
         dqn.reset_noise()  # Draw a new set of noisy weights
       buffer_idx = env.get_current_game_id() if args.separate_buffer else 0
-      mem = mems[buffer_idx]
+      mem = mems[buffer_idx] 
+      eps = args.greedy_eps *  (1 - (T - args.learn_start) / args.act_greedy_until) if T < args.act_greedy_until else 0
       if args.pearl:
-        action = dqn.act(state, mem)
+        action = dqn.act_e_greedy(state, mem, eps)
       else:
-        action = dqn.act(state)  # Choose an action greedily (with noisy weights)
+        action = dqn.act_e_greedy(state, eps)  # Choose an action greedily (with noisy weights)
       
       next_state, reward, done, info = env.step(action)  # Step
       if args.reward_clip > 0:
