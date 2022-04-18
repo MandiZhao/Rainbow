@@ -56,9 +56,7 @@ class MultiTaskAgent():
         
       else:  # Raise error if incorrect model path provided
         raise FileNotFoundError(args.model)
- 
-      # if args.reinit_fc > 0:
-      #   self.online_net.reinit_fc(args)
+  
       self.online_net = self.online_net.to(device=args.device)
         
 
