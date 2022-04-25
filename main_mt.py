@@ -19,7 +19,10 @@ from test import test, test_all_games
 
 from env_mt import MultiTaskEnv
 from omegaconf import DictConfig, OmegaConf
+from memory_dataset import Transition
 import wandb 
+from os.path import join 
+
 GAME_NAMES = {
    'alien': 'Alien',
    'amidar': 'Amidar',
@@ -50,6 +53,12 @@ GAME_SETS = {
        ['krull', 'road_runner', 'seaquest', 'amidar', 'assault'] + \
        ['asterix', 'bank_heist', 'boxing', 'chopper_command', 'private_eye'] + \
        ['crazy_climber', 'kung_fu_master', 'freeway', 'gopher', 'hero']
+}
+
+SCALE_REW_100k = {
+  'pong': [-21, -18],
+  'battle_zone': [2000, 12000],
+  'jamesbond': [0, 300]
 }
 
 DATA_DIR = [
@@ -119,6 +128,10 @@ parser.add_argument('--pearl_z_size', type=int, default=32, help='latent size fo
 parser.add_argument('--pearl_hidden_size', type=int, default=512, help='hidden size for PEARL')
 parser.add_argument('--context_length', type=int, default=100, help='num. of transitions to sample from context')
 parser.add_argument('--context_window', type=int, default=10, help='context buffer window size')
+
+# offline dataset
+parser.add_argument('--load_dataset', type=str, default='', help='Load offline dataset')
+parser.add_argument('--scale_rew', type=str, default='', help='Scale rewards')
 # Setup
 args = parser.parse_args()
 
@@ -196,6 +209,24 @@ def save_memory(memory, memory_path, disable_bzip):
     with bz2.open(memory_path, 'wb') as zipped_pickle_file:
       pickle.dump(memory, zipped_pickle_file)
 
+def load_dataset(mem, dataset_path):
+  from glob import glob
+  from natsort import natsorted
+  print('Loading from dataset path:', dataset_path)
+  episode_paths = glob( join(dataset_path, 'episode*'))
+  print(f'Loading {len(episode_paths)} episodes')
+  for i, eps in enumerate(episode_paths):
+    steps = natsorted(glob(join(eps + '/*.pkl')))
+    for step in steps:
+      # pickle load step
+      with open(step, 'rb') as pickle_file:
+        data = pickle.load(pickle_file)
+        mem.append(data.state, data.action, data.reward, data.done)
+    if i % 10 == 0:
+      print('Done loading episode {}'.format(i))
+    if i == 100:
+      break
+  return 
 # Environment
 cfg = OmegaConf.load('conf/config.yaml').env
 cfg.games = list(args.games)
@@ -253,7 +284,10 @@ if args.load_memory:
     raise ValueError('Could not find memory file at {path}. Aborting...'.format(path=args.memory))
   else:
     mem = load_memory(args.memory, args.disable_bzip_memory)
-
+elif len(args.load_dataset) > 1:
+  mem = ReplayMemory(args, args.memory_capacity)
+  load_dataset(mem, args.load_dataset)
+  mems = {0: mem}
 else:
   if args.normalize_reward:
     args.separate_buffer = True
@@ -305,6 +339,9 @@ else:
   dqn.train()
   total_T = 0
   for _id, game in enumerate(env.games):
+    if len(args.load_dataset) > 1:
+      print('Not doing random exploration for offline learning')
+      break
     env.reset()
     env._set_game(_id)
     done = True
@@ -325,12 +362,33 @@ else:
       next_state, reward, done, info = env.step(action)  # Step
       if args.reward_clip > 0:
         reward = max(min(reward, args.reward_clip), -args.reward_clip)  # Clip rewards
+      if args.scale_rew == '100k': # scale by max rew from 100k benchmark
+        name = info['game_name']
+        game_min, game_max = SCALE_REW_100k[name]
+        reward = (reward - game_min) / (game_max - game_min)
       
       mem.append(state, action, reward, done)  # Append transition to memory
       total_T += 1
     print('done appending to buffer index {}'.format(buffer_idx))
-  print('done with all games, total T {}'.format(total_T))
+  print('done with random acting at all games, total T {}'.format(total_T))
   
+  if len(args.load_dataset) > 1:
+    print('Offline training with loaded memory')
+    for T in trange(total_T, args.T_max + 1):
+      dqn.learn(mems)
+      if T % args.evaluation_interval == 0:
+        dqn.eval()  # Set DQN (online network) to evaluation mode
+        test_all_games(games, cfg, args, T, dqn, val_mems, metrics, results_dir)  # Test
+        log_metrics(T)
+        dqn.train()  # Set DQN (online network) back to training mode
+      if T % args.target_update == 0:
+        dqn.update_target_net()
+
+      # Checkpoint the network
+      if (args.checkpoint_interval != 0) and (T % args.checkpoint_interval == 0):
+        dqn.save(results_dir, f'checkpoint_{T}.pth')
+
+
   done = True
   for T in trange(total_T, args.T_max + 1):
     if done:
