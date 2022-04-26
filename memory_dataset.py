@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """ 
 Save data from agent checkpoint
-Pong: 
+Pong: --games pong --save_dataset --model Pong-Scratch-Seed321/checkpoint_5000000.pth 
 MsPacman: --games ms_pacman --model MsPacman-Scratch-Seed213/checkpoint_5000000.pth 
+Qbert --games qbert --model Scratch-Qbert-Seed3/checkpoint_5000000.pth
 """
 from __future__ import division
 import argparse
@@ -72,16 +73,15 @@ def main():
   parser.add_argument('--adam-eps', type=float, default=1.5e-4, metavar='ε', help='Adam epsilon')
   parser.add_argument('--num_games_per_batch', type=int, default=1, help='Number of games in one update batch, if >1 games are used the default is num_games')
   # replay buffer 
-  parser.add_argument('--')
-
   parser.add_argument('--greedy_eps', type=float, default=0.1, help='Act greedily every n steps')
   parser.add_argument('--reset_sigmas', action='store_true', help='Reset sigmas in Noisy Linear nets')
   parser.add_argument('--noiseless', action='store_true', help='Disable sigmas in Noisy Linear nets')
 
   # dataset save!
-  parser.add_argument('--num_episodes', default=int(1e4), type=int, help='dataset size')
+  parser.add_argument('--num_steps', default=int(1e5), type=int, help='dataset size')
   parser.add_argument('--save_path', default='/home/mandi/rainbow_data/', type=str)
   parser.add_argument('--save_name', default='rollouts', type=str)
+  parser.add_argument('--inspect', action='store_true')
 
   # Setup
   args = parser.parse_args()
@@ -117,26 +117,60 @@ def main():
     save_path = os.path.join(args.save_path, save_name)
     print('Saving dataset to path:', save_path)
     os.makedirs(save_path, exist_ok=True)
-    
-    done = True
-    for i in range(args.num_episodes):
-      episode = []
-      while True:
-        if done:
-          state, reward_sum, done = env.reset(resample_game=False), 0, False
-        action = dqn.act_e_greedy(state, epsilon=0)  # Choose an action ε-greedily
-        state, reward, done, info = env.step(action)  # Step
-        episode.append(
-        Transition(state, action, reward, done, info)
-        )
-        reward_sum += reward
-        if done:
-          print('Episode {} finished after {} timesteps, reward {}'.format(i, len(episode), reward_sum))
-          save_folder = join(save_path, f'episode{i}-rew{int(reward_sum)}')
-          os.makedirs(save_folder, exist_ok=True)
-          for j, step in enumerate(episode):
-            pickle.dump(step, open(join(save_folder, f'{j}.pkl'), 'wb'))
-          break
+
+    done = True 
+    step_count, episode_count = 0, 0
+    while step_count < args.num_steps:
+      if done:
+        state, reward_sum, done = env.reset(resample_game=False), 0, False
+        episode = [] 
+      action = dqn.act_e_greedy(state, epsilon=0)
+      next_state, reward, done, info = env.step(action)
+      transition = Transition(state, action, reward, done, info)
+      reward_sum += reward
+      episode.append(transition)
+
+      state = next_state
+      if done:
+        print('Episode {} finished after {} timesteps, reward {}'.format(
+          episode_count, len(episode), reward_sum)
+          )
+        save_folder = join(save_path, f'episode{episode_count}-rew{int(reward_sum)}')
+        os.makedirs(save_folder, exist_ok=True)
+        for j, step in enumerate(episode):
+          pickle.dump(step, open(join(save_folder, f'{j}.pkl'), 'wb'))
+        episode_count += 1
+        step_count += len(episode)
+        print('Total step count:', step_count)
+
+  elif args.inspect:
+    done = True 
+    step_count, episode_count, live_count = 0, 0
+    state, reward_sum, done = env.reset(resample_game=False), 0, False
+    while True:
+      action = dqn.act_e_greedy(state, epsilon=0)
+      next_state, reward, done, info = env.step(action) 
+      reward_sum += reward 
+
+    # done = True
+    # for i in range(args.num_steps):
+    #   episode = []
+    #   while True:
+    #     if done:
+    #       state, reward_sum, done = env.reset(resample_game=False), 0, False
+    #     action = dqn.act_e_greedy(state, epsilon=0)  # Choose an action ε-greedily
+    #     state, reward, done, info = env.step(action)  # Step
+    #     episode.append(
+    #     Transition(state, action, reward, done, info)
+    #     )
+    #     reward_sum += reward
+    #     if done:
+    #       print('Episode {} finished after {} timesteps, reward {}'.format(i, len(episode), reward_sum))
+    #       save_folder = join(save_path, f'episode{i}-rew{int(reward_sum)}')
+    #       os.makedirs(save_folder, exist_ok=True)
+    #       for j, step in enumerate(episode):
+    #         pickle.dump(step, open(join(save_folder, f'{j}.pkl'), 'wb'))
+    #       break
   else:
     print('Loading saved data back!')
     mem = ReplayMemory(args, int(1e6))

@@ -3,11 +3,12 @@ from __future__ import division
 import os
 import numpy as np
 import torch
-from torch import optim
+from torch import _sample_dirichlet, optim
 from torch.nn.utils import clip_grad_norm_
-
+import torch.nn as nn 
 from model import DQN
 from copy import deepcopy
+import torch.nn.functional as F 
 
 
 class MultiTaskAgent():
@@ -84,7 +85,7 @@ class MultiTaskAgent():
   def act_e_greedy(self, state, epsilon=0.001):  # High ε can reduce evaluation scores drastically
     return np.random.randint(0, self.action_space) if np.random.random() < epsilon else self.act(state)
 
-  def learn(self, mems):
+  def sample_batch(self, mems):
     """ Samples game-specific buffers first """
     assert len(mems) >= self.num_games_per_batch, 'Not enough buffers to learn from'
     sub_batch_size = int(self.batch_size / self.num_games_per_batch)
@@ -102,6 +103,16 @@ class MultiTaskAgent():
     next_states = torch.cat([sub_batches[_id][4] for _id in sampled_buffer_ids])
     nonterminals = torch.cat([sub_batches[_id][5] for _id in sampled_buffer_ids])
     weights = torch.cat([sub_batches[_id][6] for _id in sampled_buffer_ids])
+
+    return states, actions, returns, next_states, nonterminals, weights, sampled_buffer_ids, sub_batches
+
+
+  def learn(self, mems):
+    states, actions, returns, next_states, nonterminals, weights, \
+      sampled_buffer_ids, sub_batches = self.sample_batch(mems)
+    
+    sub_batch_size = int(self.batch_size / self.num_games_per_batch)
+    actual_bsize = int(sub_batch_size * self.num_games_per_batch)
 
     loss_np = self.one_batch_update(states, actions, returns, next_states, nonterminals, weights, actual_bsize)
     for i, _id in enumerate(sampled_buffer_ids):
@@ -193,4 +204,73 @@ class MultiTaskAgent():
     self.online_net.eval()
 
 
+class BCAgent(MultiTaskAgent):
+  def __init__(self, args, env):
+    self.action_space = env.action_space() 
+    self.batch_size = args.batch_size
+    if args.architecture == 'canonical':
+      self.convs = nn.Sequential(nn.Conv2d(args.history_length, 32, 8, stride=4, padding=0), nn.ReLU(),
+                                 nn.Conv2d(32, 64, 4, stride=2, padding=0), nn.ReLU(),
+                                 nn.Conv2d(64, 64, 3, stride=1, padding=0), nn.ReLU())
+      self.conv_output_size = 3136
+    elif args.architecture == 'data-efficient':
+      self.convs = nn.Sequential(nn.Conv2d(args.history_length, 32, 5, stride=5, padding=0), nn.ReLU(),
+                                 nn.Conv2d(32, 64, 5, stride=5, padding=0), nn.ReLU())
+      self.conv_output_size = 576
+    elif args.architecture == 'data-effx2':
+      self.convs = nn.Sequential(nn.Conv2d(args.history_length, 32, 5, stride=5, padding=0), nn.ReLU(),
+                                 nn.Conv2d(32, 32, 5, stride=5, padding=0), nn.ReLU(),
+                                 nn.Conv2d(32, 64, 5, stride=5, padding=0), nn.ReLU())
+      self.conv_output_size = 576
+    
+    self.fc_h_a = nn.Linear(self.conv_output_size, args.hidden_size)
+    self.fc_z_a = nn.NoisyLinear(args.hidden_size, self.action_space)
+
+    self.online_net = nn.Sequential(
+      self.convs, self.fc_h_a, nn.ReLU(), self.fc_z_a, nn.Softmax(dim=1)
+    )
+    self.online_net.train()
+
+    self.optimiser = optim.Adam(self.online_net.parameters(), 
+      lr=args.learning_rate, eps=args.adam_eps)
+    self.num_games_per_batch = args.num_games_per_batch
+
+  def learn(self, mems):
+    states, actions, returns, next_states, nonterminals, weights, \
+      sampled_buffer_ids, sub_batches = self.sample_batch(mems)
+    
+    sub_batch_size = int(self.batch_size / self.num_games_per_batch)
+    actual_bsize = int(sub_batch_size * self.num_games_per_batch)
+
+    pred_actions = self.online_net(states)
+    loss = nn.CrossEntropyLoss()(actions, pred_actions)
+    self.online_net.zero_grad()
+    (weights * loss).mean().backward()  # Backpropagate importance-weighted minibatch loss
+    clip_grad_norm_(self.online_net.parameters(), self.norm_clip)  # Clip gradients by L2 norm
+    self.optimiser.step()
+
+
+  def reset_noise(self):
+    return
+
+  # Acts based on single state (no batch)
+  def act(self, state):
+    with torch.no_grad():
+      return (self.online_net(state.unsqueeze(0))).sum(2).argmax(1).item()
   
+  def update_target_net(self):
+    return 
+
+  # Save model parameters on current device (don't move model between devices)
+  def save(self, path, name='model.pth'):
+    torch.save(self.online_net.state_dict(), os.path.join(path, name))
+
+  # Evaluates Q-value based on single state (no batch)
+  def evaluate_q(self, state):
+    return 0
+
+  def train(self):
+    self.online_net.train()
+
+  def eval(self):
+    self.online_net.eval()

@@ -69,7 +69,7 @@ def test_all_games(games, env_cfg, args, T, dqn, val_mems, metrics, results_dir,
     env.reset()
     env._set_game(_id)
     game_metrics['steps'].append(T)
-    T_rewards, T_Qs = [], []
+    T_rewards, T_Qs, traj_lengths = [], [], []
 
     # Test performance over several episodes
     done = True
@@ -77,11 +77,13 @@ def test_all_games(games, env_cfg, args, T, dqn, val_mems, metrics, results_dir,
       while True:
         if done:
           state, reward_sum, done = env.reset(resample_game=False), 0, False
+          step_count = 0 
         if args.pearl:
           action = dqn.act_e_greedy(state, val_mem)
         else:
           action = dqn.act_e_greedy(state)  # Choose an action ε-greedily
         state, reward, done, info = env.step(action)  # Step
+        step_count += 1
         assert info.get('game_id') == _id, 'Game ID mismatch: {} != {}'.format(info.get('game_id'), _id)
         val_mem.append(state, action, reward, done)
         reward_sum += reward
@@ -89,12 +91,12 @@ def test_all_games(games, env_cfg, args, T, dqn, val_mems, metrics, results_dir,
           env.render()
         if done:
           T_rewards.append(reward_sum) 
+          traj_lengths.append(step_count)
           break
           
     env.close()
 
     # Test Q-values over validation memory
-    
     for state in val_mem:  # Iterate over valid states
       if args.pearl:
         T_Qs.append(0) #dqn.evaluate_q(state, val_mem))
@@ -115,6 +117,7 @@ def test_all_games(games, env_cfg, args, T, dqn, val_mems, metrics, results_dir,
     
     game_metrics['avg_reward'] = avg_reward
     game_metrics['avg_q'] = avg_Q 
+    game_metrics['avg_traj_length'] = sum(traj_lengths) / len(traj_lengths)
   return  
 
  
