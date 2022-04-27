@@ -9,6 +9,7 @@ import torch.nn as nn
 from model import DQN
 from copy import deepcopy
 import torch.nn.functional as F 
+from einops.layers.torch import Rearrange, Reduce
 
 
 class MultiTaskAgent():
@@ -222,33 +223,35 @@ class BCAgent(MultiTaskAgent):
                                  nn.Conv2d(32, 32, 5, stride=5, padding=0), nn.ReLU(),
                                  nn.Conv2d(32, 64, 5, stride=5, padding=0), nn.ReLU())
       self.conv_output_size = 576
-    
-    self.fc_h_a = nn.Linear(self.conv_output_size, args.hidden_size)
-    self.fc_z_a = nn.NoisyLinear(args.hidden_size, self.action_space)
+    mlps = []
+    mlp_sizes = [int(size) for size in args.mlps]
+    print('MLP sizes:', mlp_sizes)
+    for i, size in enumerate(mlp_sizes):
+      mlps.append(nn.Linear(self.conv_output_size if i == 0 else mlp_sizes[i-1], size))
+      mlps.append(nn.ReLU()) 
+    mlps.append(nn.Linear(mlp_sizes[-1], self.action_space))
+    self.mlps = nn.Sequential(*mlps)
 
     self.online_net = nn.Sequential(
-      self.convs, self.fc_h_a, nn.ReLU(), self.fc_z_a, nn.Softmax(dim=1)
-    )
+      self.convs, 
+      Rearrange('b c h w -> b (c h w)'), 
+      self.mlps).to(args.device)
     self.online_net.train()
 
     self.optimiser = optim.Adam(self.online_net.parameters(), 
       lr=args.learning_rate, eps=args.adam_eps)
     self.num_games_per_batch = args.num_games_per_batch
+    self.device = args.device
 
-  def learn(self, mems):
-    states, actions, returns, next_states, nonterminals, weights, \
-      sampled_buffer_ids, sub_batches = self.sample_batch(mems)
-    
-    sub_batch_size = int(self.batch_size / self.num_games_per_batch)
-    actual_bsize = int(sub_batch_size * self.num_games_per_batch)
-
-    pred_actions = self.online_net(states)
-    loss = nn.CrossEntropyLoss()(actions, pred_actions)
+  def learn(self, states, actions, eval=False): 
+    pred_actions = self.online_net(states) 
+    loss = nn.CrossEntropyLoss()(input=pred_actions, target=actions)
+    if eval:
+      return loss.detach().cpu().numpy().item()
     self.online_net.zero_grad()
-    (weights * loss).mean().backward()  # Backpropagate importance-weighted minibatch loss
-    clip_grad_norm_(self.online_net.parameters(), self.norm_clip)  # Clip gradients by L2 norm
+    loss.mean().backward()  # Backpropagate importance-weighted minibatch loss
     self.optimiser.step()
-
+    return loss.detach().cpu().numpy().item()
 
   def reset_noise(self):
     return
@@ -256,7 +259,8 @@ class BCAgent(MultiTaskAgent):
   # Acts based on single state (no batch)
   def act(self, state):
     with torch.no_grad():
-      return (self.online_net(state.unsqueeze(0))).sum(2).argmax(1).item()
+      action = self.online_net(state.unsqueeze(0)) 
+      return action.argmax(1).item()
   
   def update_target_net(self):
     return 
