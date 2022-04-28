@@ -75,14 +75,11 @@ class DQN(nn.Module):
     self.fc_h_a = NoisyLinear(self.conv_output_size, args.hidden_size, std_init=args.noisy_std, noiseless=args.noiseless)
     self.fc_z_v = NoisyLinear(args.hidden_size, self.atoms, std_init=args.noisy_std, noiseless=args.noiseless)
     self.fc_z_a = NoisyLinear(args.hidden_size, action_space * self.atoms, std_init=args.noisy_std, noiseless=args.noiseless)
-    self.layernorm = None 
     
       
 
   def forward(self, x, log=False):
-    x = self.convs(x) # data eff would be B, 64, 3, 3
-    if self.layernorm is not None:
-      x = self.layernorm(x)
+    x = self.convs(x) # data eff would be B, 64, 3, 3 
     x = x.view(-1, self.conv_output_size)
     v = self.fc_z_v(F.relu(self.fc_h_v(x)))  # Value stream
     a = self.fc_z_a(F.relu(self.fc_h_a(x)))  # Advantage stream

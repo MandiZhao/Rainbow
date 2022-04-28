@@ -124,8 +124,7 @@ parser.add_argument('--unfreeze_conv_when', type=int, default=50e6, help='Unfree
 parser.add_argument('--pad_action_space', type=int, default=0, help='Pad action space with zeros, use for preparing single-task agent to fine-tune')
 parser.add_argument('--act_greedy_until', type=int, default=0, help='Act greedily until this many steps have passed')
 parser.add_argument('--greedy_eps', type=float, default=0.1, help='Act greedily every n steps')
-parser.add_argument('--constant_greedy', action='store_true', help='constant greedy')
-parser.add_argument('--layernorm', action='store_true', help='Use layer normalization')
+parser.add_argument('--constant_greedy', action='store_true', help='constant greedy') 
 
 
 parser.add_argument('--reset_sigmas', action='store_true', help='Reset sigmas in Noisy Linear nets')
