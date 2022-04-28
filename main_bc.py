@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-python main_bc.py --games pong --batch_size 128 --learning_rate 1e-3 --id 128-Lr1e-3
+python main_bc.py --games pong qbert ms_pacman --batch_size 128 --learning_rate 1e-3 
 """
 
 from __future__ import division
@@ -103,7 +103,7 @@ parser.add_argument('--id', type=str, default='default', help='Experiment ID')
 parser.add_argument('--seed', type=int, default=123, help='Random seed')
 parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
 # parser.add_argument('--game', type=str, default='space_invaders', choices=atari_py.list_games(), help='ATARI game')
-parser.add_argument('--T_max', type=int, default=int(50_000), metavar='STEPS', help='Number of training steps (4x number of frames)')
+parser.add_argument('--T_max', type=int, default=int(300_000), metavar='STEPS', help='Number of training steps (4x number of frames)')
 parser.add_argument('--max-episode-length', type=int, default=int(108e3), metavar='LENGTH', help='Max episode length in game frames (0 to disable)')
 parser.add_argument('--history-length', type=int, default=4, metavar='T', help='Number of consecutive states processed')
 parser.add_argument('--architecture', type=str, default='data-efficient', choices=['canonical', 'data-efficient', 'data-effx2'], metavar='ARCH', help='Network architecture')
@@ -120,13 +120,13 @@ parser.add_argument('--multi-step', type=int, default=3, metavar='n', help='Numb
 parser.add_argument('--discount', type=float, default=0.99, metavar='γ', help='Discount factor')
 parser.add_argument('--target-update', type=int, default=int(8e3), metavar='τ', help='Number of steps after which to update target network')
 parser.add_argument('--reward-clip', type=int, default=1, metavar='VALUE', help='Reward clipping (0 to disable)')
-parser.add_argument('--learning_rate', type=float, default=3e-4, metavar='η', help='Learning rate')
+parser.add_argument('--learning_rate', type=float, default=1e-3, metavar='η', help='Learning rate')
 parser.add_argument('--adam-eps', type=float, default=1.5e-4, metavar='ε', help='Adam epsilon')
-parser.add_argument('--batch_size', type=int, default=64, metavar='SIZE', help='Batch size')
+parser.add_argument('--batch_size', type=int, default=128, metavar='SIZE', help='Batch size')
 parser.add_argument('--norm-clip', type=float, default=10, metavar='NORM', help='Max L2 norm for gradient clipping')
 parser.add_argument('--learn_start', type=int, default=int(20e3), metavar='STEPS', help='Number of steps before starting training')
 parser.add_argument('--evaluate', action='store_true', help='Evaluate only')
-parser.add_argument('--evaluation_interval', type=int, default=int(100), metavar='STEPS', help='Number of training steps between evaluations')
+parser.add_argument('--evaluation_interval', type=int, default=int(5000), metavar='STEPS', help='Number of training steps between evaluations')
 parser.add_argument('--evaluation_episodes', type=int, default=10, metavar='N', help='Number of evaluation episodes to average over')
 # TODO: Note that DeepMind's evaluation method is running the latest agent for 500K frames ever every 1M steps
 parser.add_argument('--evaluation_size', type=int, default=500, metavar='N', help='Number of transitions to use for validating Q')

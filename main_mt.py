@@ -124,6 +124,8 @@ parser.add_argument('--unfreeze_conv_when', type=int, default=50e6, help='Unfree
 parser.add_argument('--pad_action_space', type=int, default=0, help='Pad action space with zeros, use for preparing single-task agent to fine-tune')
 parser.add_argument('--act_greedy_until', type=int, default=0, help='Act greedily until this many steps have passed')
 parser.add_argument('--greedy_eps', type=float, default=0.1, help='Act greedily every n steps')
+parser.add_argument('--constant_greedy', action='store_true', help='constant greedy')
+
 parser.add_argument('--reset_sigmas', action='store_true', help='Reset sigmas in Noisy Linear nets')
 parser.add_argument('--noiseless', action='store_true', help='Disable sigmas in Noisy Linear nets')
 # PEARL
@@ -358,6 +360,8 @@ else:
       buffer_idx = env.get_current_game_id() if args.separate_buffer else 0
       mem = mems[buffer_idx] 
       eps = args.greedy_eps *  (1 - (T - args.learn_start) / args.act_greedy_until) if T < args.act_greedy_until else 0
+      if args.constant_greedy:
+        eps = args.greedy_eps
       if args.pearl:
         action = dqn.act_e_greedy(state, mem, eps)
       else:

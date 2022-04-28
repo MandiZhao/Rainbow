@@ -240,9 +240,3 @@ class PearlDQN(DQN):
     z = torch.stack(z) 
     kl_loss = _compute_kl_loss(z_means, z_vars)
     return z, kl_loss
-
-
-
-
-
-  
