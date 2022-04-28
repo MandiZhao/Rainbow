@@ -62,6 +62,9 @@ class MultiTaskAgent():
       self.online_net = self.online_net.to(device=args.device)
         
 
+    if args.layernorm:
+      assert args.architecture == 'data-efficient'
+      self.online_net.layernorm = nn.LayerNorm([64, 3, 3])
     self.online_net.train()
 
     self.target_net = DQN(args, self.action_space).to(device=args.device)
