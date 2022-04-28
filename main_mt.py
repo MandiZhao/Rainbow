@@ -422,9 +422,9 @@ else:
     if args.scale_rew == '100k': # scale by max rew from 100k benchmark
         name = info['game_name']
         game_min, game_max = SCALE_REW_100k[name]
-        print('before scale', reward)
+        #print('before scale', reward)
         reward = (reward - game_min) / (game_max - game_min)
-        print('after rew', reward)
+        #print('after rew', reward)
     # Train and test
     # if T >= args.learn_start:
     mem.priority_weight = min(mem.priority_weight + priority_weight_increase, 1)  # Anneal importance sampling weight β to 1

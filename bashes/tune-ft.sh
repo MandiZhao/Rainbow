@@ -32,7 +32,7 @@ taskset -c $CPUS python main_mt.py --target-update 2000 --T_max 100000 \
                --id DataEff-NoNoise --model $MODEL --seed $SEED \
                --games $GAME \
                --learn_start 1600 \
-               --noiseless --greedy_eps 0.1 --constant_greedy  # --load_conv_fc_h --unfreeze_conv_when 30_000 \
+               --noiseless --greedy_eps 0.2 --constant_greedy  # --load_conv_fc_h --unfreeze_conv_when 30_000 \
                #--act_greedy_until 100_000 
 done
 
@@ -55,7 +55,7 @@ taskset -c $CPUS python main_mt.py --target-update 2000 --T_max 100000 \
 CPUS=0-48
 for SEED in 312 132 123
 do
-GAME=battle_zone
+GAME=jamesbond
 taskset -c $CPUS python main_mt.py --target-update 2000 --T_max 100000 \
                --memory-capacity 100000 \
                --replay_frequency 1 \
@@ -66,7 +66,6 @@ taskset -c $CPUS python main_mt.py --target-update 2000 --T_max 100000 \
                --evaluation_interval 5000 \
                --id ScaleRewDataEff-Scratch --seed $SEED \
                --games $GAME \
-               --learn_start 1600 \
-               --act_greedy_until 100_000 --greedy_eps 0.9 \
-               --scale_rew '100k'  --no_wb
+               --learn_start 1600 --scale_rew '100k'   
 done
+#    --act_greedy_until 100_000 --greedy_eps 0.9 \
