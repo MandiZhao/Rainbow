@@ -119,7 +119,7 @@ parser.add_argument('--load_memory', action='store_true', help='Load memory from
 parser.add_argument('--normalize_reward', action='store_true', help='Normalize rewards')
 parser.add_argument('--load_conv_only', action='store_true', help='Load convolutional layers only')
 parser.add_argument('--load_conv_fc_h', action='store_true', help='Load convolutional layers and hidden FC layers')
-parser.add_argument('--reinit_fc', type=int, default=1, help='Reinitialize fully connected layers, 0 means no reinit')
+
 parser.add_argument('--unfreeze_conv_when', type=int, default=50e6, help='Unfreeze convolutional layers when this many steps have passed')
 parser.add_argument('--pad_action_space', type=int, default=0, help='Pad action space with zeros, use for preparing single-task agent to fine-tune')
 parser.add_argument('--act_greedy_until', type=int, default=0, help='Act greedily until this many steps have passed')
@@ -139,6 +139,8 @@ parser.add_argument('--context_window', type=int, default=10, help='context buff
 # offline dataset
 parser.add_argument('--load_dataset', type=str, default='', help='Load offline dataset')
 parser.add_argument('--scale_rew', type=str, default='', help='Scale rewards')
+
+parser.add_argument('--mlps', nargs='+', default=[512])
 # Setup
 args = parser.parse_args()
 
@@ -164,7 +166,7 @@ args.id += '-SepBuf' if args.separate_buffer else ''
 args.id += '-Seed{}'.format(args.seed)
 
 if args.model is not None:
-  args.id += "-FreezeConv-ReInit{}FC-UnfreezeAt{:0.0e}".format(args.reinit_fc, args.unfreeze_conv_when) if args.load_conv_only else '-NoFreezeConv'
+  args.id += "-FreezeConv-UnfreezeAt{:0.0e}".format(args.unfreeze_conv_when) if args.load_conv_only else '-NoFreezeConv'
   print('Pad test-time environment action space to 18 for finetuning')
   
   if len(args.model.split('/')) == 2:
@@ -245,7 +247,7 @@ if len(games) > 1:
     print('Default setting num_games_per_batch to {} for multi-task runs'.format(len(games)))
     args.num_games_per_batch = len(games)
 
-if args.model is not None and args.reinit_fc == 0:
+if args.model is not None:
   cfg.modify_action_size = 18 
 if args.pad_action_space > 0:
   print('Warning! Padding action space with {} zeros'.format(args.pad_action_space))

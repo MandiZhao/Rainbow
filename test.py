@@ -61,6 +61,8 @@ def test(args, T, dqn, val_mem, metrics, results_dir, evaluate=False, plot_line=
 
 def test_all_games(games, env_cfg, args, T, dqn, val_mems, metrics, results_dir, evaluate=False):
   assert len(games) == len(val_mems)
+  if args.evaluation_episodes == 0:
+    return
   env = MultiTaskEnv(env_cfg)
   env.eval()
   for _id, game in enumerate(games): 

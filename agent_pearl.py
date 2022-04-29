@@ -36,12 +36,7 @@ class PearlAgent(MultiTaskAgent):
         print("Loading pretrained model: " + args.model)
       else:  # Raise error if incorrect model path provided
         raise FileNotFoundError(args.model)
-      
-      if args.load_conv_only:
-        self.online_net.reinit_fc(args)
-        self.online_net.freeze_conv()
-        self.online_net = self.online_net.to(device=args.device)
-        
+       
 
     self.online_net.train()
 

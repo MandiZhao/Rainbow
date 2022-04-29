@@ -29,10 +29,11 @@ taskset -c $CPUS python main_mt.py --target-update 2000 --T_max 100000 \
                --hidden-size 256 \
                --learning_rate 0.0001 \
                --evaluation_interval 5000 \
-               --id DataEff-NoNoise --model $MODEL --seed $SEED \
+               --model $MODEL --seed $SEED \
                --games $GAME \
                --learn_start 1600 \
-               --noiseless --greedy_eps 0.2 --constant_greedy  # --load_conv_fc_h --unfreeze_conv_when 30_000 \
+               --target-update 1000  --id DataEff-FrequentUpdate --no_wb
+               #--noiseless --greedy_eps 0.2 --constant_greedy  # --load_conv_fc_h --unfreeze_conv_when 30_000 \
                #--act_greedy_until 100_000 
 done
 
@@ -66,6 +67,26 @@ taskset -c $CPUS python main_mt.py --target-update 2000 --T_max 100000 \
                --evaluation_interval 5000 \
                --id ScaleRewDataEff-Scratch --seed $SEED \
                --games $GAME \
-               --learn_start 1600 --scale_rew '100k'   
+               --learn_start 1600 --no_wb #--scale_rew '100k'   
 done
 #    --act_greedy_until 100_000 --greedy_eps 0.9 \
+
+
+# retrain a 2 layer fc model
+
+CPUS=64-128
+
+SEED=123
+taskset -c $CPUS python main_mt.py --target-update 2000 \
+               --memory-capacity 100000 \
+               --replay_frequency 1 \
+               --multi-step 20 \
+               --architecture data-efficient \
+               --learning_rate 0.0001 \
+               --evaluation_interval 50_000 \
+               --id DataEff-MT-3MLP \
+               --T_max 1_000_000 --checkpoint_interval 50_000 \
+               --batch_size 64 --separate_buffer --num_games_per_batch 8 \
+               --games 8task-v2 --learn_start 6400 \
+               --evaluation_episodes 0 \
+               --mlps 512 256 

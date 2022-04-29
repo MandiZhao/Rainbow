@@ -5,6 +5,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from einops import rearrange, repeat
+from collections import OrderedDict
+from itertools import chain
 
 # Factorised NoisyLinear layer with bias
 class NoisyLinear(nn.Module):
@@ -22,6 +24,9 @@ class NoisyLinear(nn.Module):
     self.register_buffer('bias_epsilon', torch.empty(out_features))
     self.reset_parameters()
     self.reset_noise()
+    if noiseless:
+      for p in [self.weight_sigma, self.bias_sigma]:
+        p.requires_grad = False
     self.noiseless = noiseless
 
   def reset_parameters(self):
@@ -71,18 +76,37 @@ class DQN(nn.Module):
                                  nn.Conv2d(32, 64, 5, stride=5, padding=0), nn.ReLU())
       self.conv_output_size = 576
     
-    self.fc_h_v = NoisyLinear(self.conv_output_size, args.hidden_size, std_init=args.noisy_std, noiseless=args.noiseless)
-    self.fc_h_a = NoisyLinear(self.conv_output_size, args.hidden_size, std_init=args.noisy_std, noiseless=args.noiseless)
-    self.fc_z_v = NoisyLinear(args.hidden_size, self.atoms, std_init=args.noisy_std, noiseless=args.noiseless)
-    self.fc_z_a = NoisyLinear(args.hidden_size, action_space * self.atoms, std_init=args.noisy_std, noiseless=args.noiseless)
+    # self.fc_h_v = NoisyLinear(self.conv_output_size, args.hidden_size, std_init=args.noisy_std, noiseless=args.noiseless)
+    # self.fc_h_a = NoisyLinear(self.conv_output_size, args.hidden_size, std_init=args.noisy_std, noiseless=args.noiseless)
+    # self.fc_z_v = NoisyLinear(args.hidden_size, self.atoms, std_init=args.noisy_std, noiseless=args.noiseless)
+    # self.fc_z_a = NoisyLinear(args.hidden_size, action_space * self.atoms, std_init=args.noisy_std, noiseless=args.noiseless)
     
-      
+    fc_vs, fc_as = [], []  
+    mlp_sizes = [int(size) for size in args.mlps]
+    for i, size in enumerate(mlp_sizes):
+      for ls in [fc_vs, fc_as]:
+        ls.extend([
+        (f'fc{i}', NoisyLinear(self.conv_output_size if i == 0 else mlp_sizes[i-1], size, 
+        std_init=args.noisy_std, noiseless=args.noiseless)),
+        (f'relu{i}', nn.ReLU())
+        ])
+      if i == len(mlp_sizes) - 1:
+          fc_vs.append(
+            (f'fc{i+1}', NoisyLinear(size, self.atoms, std_init=args.noisy_std, noiseless=args.noiseless)))
+          fc_as.append(
+            (f'fc{i+1}', NoisyLinear(size, action_space * self.atoms, std_init=args.noisy_std, noiseless=args.noiseless)))
+    self.fc_v = nn.Sequential(OrderedDict(fc_vs))
+    self.fc_a = nn.Sequential(OrderedDict(fc_as))
+
 
   def forward(self, x, log=False):
     x = self.convs(x) # data eff would be B, 64, 3, 3 
     x = x.view(-1, self.conv_output_size)
-    v = self.fc_z_v(F.relu(self.fc_h_v(x)))  # Value stream
-    a = self.fc_z_a(F.relu(self.fc_h_a(x)))  # Advantage stream
+    # v = self.fc_z_v(F.relu(self.fc_h_v(x)))  # Value stream
+    # a = self.fc_z_a(F.relu(self.fc_h_a(x)))  # Advantage stream
+    v = F.relu(self.fc_v(x))
+    a = F.relu(self.fc_a(x))
+    
     v, a = v.view(-1, 1, self.atoms), a.view(-1, self.action_space, self.atoms)
     q = v + a - a.mean(1, keepdim=True)  # Combine streams
     if log:  # Use log softmax for numerical stability
@@ -92,7 +116,10 @@ class DQN(nn.Module):
     return q
 
   def reset_noise(self):
-    for name, module in self.named_children():
+    # for name, module in self.named_children():
+    #   if 'fc' in name:
+    #     module.reset_noise()
+    for name, module in chain(self.fc_v.named_children(), self.fc_a.named_children()):
       if 'fc' in name:
         module.reset_noise()
 
@@ -100,20 +127,7 @@ class DQN(nn.Module):
     for name, module in self.named_children():
       if 'fc' in name:
         module.reset_sigmas()
-
-  def reinit_fc(self, args):
-    if args.reinit_fc == 0:
-      print('Not reinitializing any fc. layers')
-      return 
-    if args.reinit_fc >= 1:
-      print('Reinitializing last fully connected layers')
-      self.fc_z_v = NoisyLinear(args.hidden_size, self.atoms, std_init=args.noisy_std)
-      self.fc_z_a = NoisyLinear(args.hidden_size, self.action_space * self.atoms, std_init=args.noisy_std)
-    if args.reinit_fc == 2:
-      print('Reinitializing early fully connected layers')
-      self.fc_h_v = NoisyLinear(self.conv_output_size, args.hidden_size, std_init=args.noisy_std)
-      self.fc_h_a = NoisyLinear(self.conv_output_size, args.hidden_size, std_init=args.noisy_std)
-    
+ 
   def freeze_conv(self):
     print('Freezing all conv. layers')
     for p in self.convs.parameters():

@@ -29,10 +29,6 @@ class MultiTaskAgent():
     if args.model:  # Load pretrained model if provided
       if os.path.isfile(args.model):
         state_dict = torch.load(args.model, map_location='cpu')  # Always load tensors onto CPU by default, will shift to GPU if necessary
-        if 'conv1.weight' in state_dict.keys():
-          for old_key, new_key in (('conv1.weight', 'convs.0.weight'), ('conv1.bias', 'convs.0.bias'), ('conv2.weight', 'convs.2.weight'), ('conv2.bias', 'convs.2.bias'), ('conv3.weight', 'convs.4.weight'), ('conv3.bias', 'convs.4.bias')):
-            state_dict[new_key] = state_dict[old_key]  # Re-map state dict for old pretrained models
-            del state_dict[old_key]  # Delete old keys for strict load_state_dict
 
         if args.load_conv_only:
           self.online_net.convs.load_state_dict({
