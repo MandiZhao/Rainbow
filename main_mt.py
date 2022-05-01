@@ -141,6 +141,7 @@ parser.add_argument('--load_dataset', type=str, default='', help='Load offline d
 parser.add_argument('--scale_rew', type=str, default='', help='Scale rewards')
 
 parser.add_argument('--mlps', nargs='+', default=[512])
+parser.add_argument('--eval_eps', type=float, default=0.001)
 # Setup
 args = parser.parse_args()
 

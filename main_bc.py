@@ -1,6 +1,14 @@
 # -*- coding: utf-8 -*-
 """
+Multi-task:
 python main_bc.py --games pong qbert ms_pacman --batch_size 128 --learning_rate 1e-3 
+
+Single task:
+for GAME in pong qbert ms_pacman
+do 
+python main_bc.py --architecture data-efficient --games $GAME \
+  --T_max 100_000 --evaluation_interval 1000 --mlps 64
+done
 """
 
 from __future__ import division
@@ -50,8 +58,7 @@ class BCDataset(IterableDataset):
         # states = torch.tensor(states, dtype=torch.float32, device=self.device).div_(255)
         # actions = torch.tensor(actions, dtype=torch.int64, device=self.device)
         return states, actions
-
-    
+ 
     def _generator(self):
         while True:
             yield self.sample()
@@ -132,7 +139,7 @@ parser.add_argument('--evaluation_episodes', type=int, default=10, metavar='N', 
 parser.add_argument('--evaluation_size', type=int, default=500, metavar='N', help='Number of transitions to use for validating Q')
 parser.add_argument('--render', action='store_true', help='Display screen (testing only)')
 parser.add_argument('--enable-cudnn', action='store_true', help='Enable cuDNN (faster but nondeterministic)')
-parser.add_argument('--checkpoint_interval', type=int, default=500000, help='How often to checkpoint the model, defaults to 0.5M ')
+parser.add_argument('--checkpoint_interval', type=int, default=50000, help='How often to checkpoint the model, defaults to 0.5M ')
 parser.add_argument('--memory', help='Path to save/load the memory from')
 parser.add_argument('--disable-bzip-memory', action='store_true', help='Don\'t zip the memory file. Not recommended (zipping is a bit slower and much, much smaller)')
 
@@ -209,8 +216,9 @@ def log_metrics(T):
         if not isinstance(vv, list):
           tolog[key + '/' + kk] = vv 
           tolog[kk + '/' + key] = vv 
-  tolog['train_loss'] = metrics['train_loss']
-  tolog['val_loss'] = metrics['val_loss']
+  for key in ['train_loss', 'val_loss', 'train_acc', 'val_acc']:
+    tolog[key] = metrics[key] 
+
   if not args.no_wb: 
       wandb.log(tolog)
 
@@ -245,24 +253,28 @@ bc.train()
 for T in trange(0, args.T_max + 1):
   states, actions = next(train_iter)
 
-  loss = bc.learn(states, actions)
+  loss, acc = bc.learn(states, actions)
   metrics['train_loss'] = loss 
+  metrics['train_acc'] = acc
 
   if T % args.evaluation_interval == 0:
     bc.eval()  # Set DQN (online network) to evaluation mode
     with torch.no_grad():
-      val_loss = []
+      val_loss, val_acc = [], []
       for _ in range(args.val_steps):
         val_states, val_actions = next(val_iter)
-        val_loss.append(bc.learn(val_states, val_actions, eval=True))
+        one_val_loss, one_val_acc = bc.learn(val_states, val_actions, eval=True)
+        val_loss.append(one_val_loss)
+        val_acc.append(one_val_acc)
     val_loss_mean = np.mean(val_loss)
     metrics['val_loss'] = val_loss_mean
+    metrics['val_acc'] = np.mean(val_acc)
     test_bc(games, cfg, args, T, bc, metrics, results_dir)  # Test
     log_metrics(T)
     bc.train() 
 
   # Checkpoint the network
-  if (args.checkpoint_interval != 0) and (T % args.checkpoint_interval == 0):
+  if (T % args.checkpoint_interval == 0) or T == args.T_max - 1:
     bc.save(results_dir, f'checkpoint_{T}.pth')
 
 

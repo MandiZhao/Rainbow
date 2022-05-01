@@ -124,7 +124,8 @@ class DQN(nn.Module):
         module.reset_noise()
 
   def reset_sigmas(self):
-    for name, module in self.named_children():
+    # for name, module in self.named_children():
+    for name, module in chain(self.fc_v.named_children(), self.fc_a.named_children()):
       if 'fc' in name:
         module.reset_sigmas()
  

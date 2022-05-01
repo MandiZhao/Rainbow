@@ -81,9 +81,9 @@ def test_all_games(games, env_cfg, args, T, dqn, val_mems, metrics, results_dir,
           state, reward_sum, done = env.reset(resample_game=False), 0, False
           step_count = 0 
         if args.pearl:
-          action = dqn.act_e_greedy(state, val_mem)
+          action = dqn.act_e_greedy(state, val_mem, epsilon=args.eval_eps)
         else:
-          action = dqn.act_e_greedy(state)  # Choose an action ε-greedily
+          action = dqn.act_e_greedy(state, epsilon=args.eval_eps)  # Choose an action ε-greedily
         state, reward, done, info = env.step(action)  # Step
         step_count += 1
         assert info.get('game_id') == _id, 'Game ID mismatch: {} != {}'.format(info.get('game_id'), _id)

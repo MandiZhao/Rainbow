@@ -242,12 +242,14 @@ class BCAgent(MultiTaskAgent):
   def learn(self, states, actions, eval=False): 
     pred_actions = self.online_net(states) 
     loss = nn.CrossEntropyLoss()(input=pred_actions, target=actions)
+    acc = (pred_actions.argmax(1) == actions).float().mean().item()
     if eval:
-      return loss.detach().cpu().numpy().item()
+      return loss.detach().cpu().numpy().item(), acc
     self.online_net.zero_grad()
     loss.mean().backward()  # Backpropagate importance-weighted minibatch loss
     self.optimiser.step()
-    return loss.detach().cpu().numpy().item()
+    
+    return loss.detach().cpu().numpy().item(), acc
 
   def reset_noise(self):
     return
