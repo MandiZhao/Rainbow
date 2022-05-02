@@ -10,6 +10,7 @@ from model import DQN
 from copy import deepcopy
 import torch.nn.functional as F 
 from einops.layers.torch import Rearrange, Reduce
+from torchvision.transforms import RandomAffine, RandomResizedCrop
 
 
 class MultiTaskAgent():
@@ -68,6 +69,10 @@ class MultiTaskAgent():
 
     self.optimiser = optim.Adam(self.online_net.parameters(), lr=args.learning_rate, eps=args.adam_eps)
     self.num_games_per_batch = args.num_games_per_batch
+    self.apply_aug = args.apply_aug
+    if self.apply_aug:
+      print('Applying Random Resized Crop')
+    self.aug = RandomResizedCrop(84, scale=(0.8, 1.0), ratio=(0.9, 1.1))
     
   # Resets noisy weights in all linear layers (of online net only)
   def reset_noise(self):
@@ -101,6 +106,9 @@ class MultiTaskAgent():
     nonterminals = torch.cat([sub_batches[_id][5] for _id in sampled_buffer_ids])
     weights = torch.cat([sub_batches[_id][6] for _id in sampled_buffer_ids])
 
+    if self.apply_aug:
+      states = self.aug(states)
+      next_states = self.aug(next_states)
     return states, actions, returns, next_states, nonterminals, weights, sampled_buffer_ids, sub_batches
 
 
@@ -219,6 +227,13 @@ class BCAgent(MultiTaskAgent):
                                  nn.Conv2d(32, 32, 5, stride=5, padding=0), nn.ReLU(),
                                  nn.Conv2d(32, 64, 5, stride=5, padding=0), nn.ReLU())
       self.conv_output_size = 576
+
+    if len(args.load_convs) > 0:
+      state_dict = torch.load(args.load_convs, map_location='cpu')  # Always load tensors onto CPU by default, will shift to GPU if necessary
+      self.convs.load_state_dict({
+            '.'.join(k.split('.')[1:]): v for k, v in state_dict.items() if 'convs' in k}
+      )
+      print('Loaded convs from', args.load_convs)
     mlps = []
     mlp_sizes = [int(size) for size in args.mlps]
     print('MLP sizes:', mlp_sizes)

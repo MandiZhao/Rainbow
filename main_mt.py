@@ -142,6 +142,8 @@ parser.add_argument('--scale_rew', type=str, default='', help='Scale rewards')
 
 parser.add_argument('--mlps', nargs='+', default=[512])
 parser.add_argument('--eval_eps', type=float, default=0.001)
+parser.add_argument('--random_steps', type=int, default=int(0))
+parser.add_argument('--apply_aug', action='store_true', help='Apply augmentation')
 # Setup
 args = parser.parse_args()
 
@@ -248,7 +250,7 @@ if len(games) > 1:
     print('Default setting num_games_per_batch to {} for multi-task runs'.format(len(games)))
     args.num_games_per_batch = len(games)
 
-if args.model is not None:
+if args.model is not None and not args.load_conv_only:
   cfg.modify_action_size = 18 
 if args.pad_action_space > 0:
   print('Warning! Padding action space with {} zeros'.format(args.pad_action_space))
@@ -355,7 +357,7 @@ else:
     env.reset()
     env._set_game(_id)
     done = True
-    for env_T in range(args.learn_start):
+    for env_T in range(args.random_steps + args.learn_start):
       if done:
         state = env.reset(resample_game=False)
 
@@ -366,6 +368,8 @@ else:
       eps = args.greedy_eps *  (1 - (T - args.learn_start) / args.act_greedy_until) if T < args.act_greedy_until else 0
       if args.constant_greedy:
         eps = args.greedy_eps
+      if env_T < args.random_steps:
+        eps = 1 # completely random!
       if args.pearl:
         action = dqn.act_e_greedy(state, mem, eps)
       else:

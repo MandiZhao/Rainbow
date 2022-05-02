@@ -60,18 +60,17 @@ CPUS=64-128
 
 SEED=123
 taskset -c $CPUS python main_mt.py --target-update 2000 \
-               --memory-capacity 100000 \
+               --memory-capacity 500000 \
                --replay_frequency 1 \
                --multi-step 20 \
                --architecture data-efficient \
                --learning_rate 0.0001 \
                --evaluation_interval 50_000 \
-               --id DataEff-MT-3MLP256 \
                --T_max 1_000_000 --checkpoint_interval 50_000 \
-               --batch_size 64 --separate_buffer --num_games_per_batch 8 \
+               --batch_size 32 --separate_buffer --num_games_per_batch 2 \
                --games 8task-v2 --learn_start 6400 \
                --evaluation_episodes 3 \
-               --mlps 256 256 
+               --mlps 512 512 --id DataEff-MT-3MLP512-ApplyAug --apply_aug
 
 
 # continue from non-noisy layer 
@@ -90,6 +89,6 @@ taskset -c $CPUS python main_mt.py --target-update 2000 --T_max 100000 \
                --evaluation_interval 5000 --seed $SEED \
                --games $GAME --model $MODEL \
                --learn_start 1600 \
-               --mlps 256 256 \
-               --noiseless --id DataEff-NoExplore --constant_greedy --greedy_eps 0 
+               --mlps 256 256 --id DataEff-ApplyAug --reset_sigmas
+                --apply_aug 
 done

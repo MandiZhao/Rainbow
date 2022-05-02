@@ -90,6 +90,7 @@ class DQN(nn.Module):
         std_init=args.noisy_std, noiseless=args.noiseless)),
         (f'relu{i}', nn.ReLU())
         ])
+        
       if i == len(mlp_sizes) - 1:
           fc_vs.append(
             (f'fc{i+1}', NoisyLinear(size, self.atoms, std_init=args.noisy_std, noiseless=args.noiseless)))

@@ -9,6 +9,10 @@ do
 python main_bc.py --architecture data-efficient --games $GAME \
   --T_max 100_000 --evaluation_interval 1000 --mlps 64
 done
+
+python main_bc.py --architecture data-efficient --games ms_pacman \
+   --T_max 100_000 --evaluation_interval 1000 --id LoadConv --load_convs /shared/mandi/rainbow_data/8task-v2-DataEff-MT-3MLP256-B64-SepBuf-Seed123/checkpoint_500000.pth
+
 """
 
 from __future__ import division
@@ -167,6 +171,7 @@ parser.add_argument('--val_split', type=float, default=0.1, help='Validation spl
 parser.add_argument('--val_steps', type=int, default=10, help='Validation steps')
 parser.add_argument('--cap_data', type=int, default=10000, help='cap num of episodes')
 parser.add_argument('--mlps', nargs='+', default=[512])
+parser.add_argument('--load_convs', default='', help='Load convolutional layers only')
 # Setup
 args = parser.parse_args()
 
