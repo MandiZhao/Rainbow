@@ -8,7 +8,7 @@ import torch
 
 from env import Env
 from env_mt import MultiTaskEnv
-
+import gym
 
 # Test DQN
 def test(args, T, dqn, val_mem, metrics, results_dir, evaluate=False, plot_line=False):
@@ -63,6 +63,49 @@ def test_all_games(games, env_cfg, args, T, dqn, val_mems, metrics, results_dir,
   assert len(games) == len(val_mems)
   if args.evaluation_episodes == 0:
     return
+  if args.use_procgen:
+    for mode in ['seen', 'unseen']:
+      env = gym.make(
+        f"procgen:procgen-{args.procgen_name}-v0",
+        num_levels=args.num_levels, 
+        distribution_mode='hard', 
+        start_level=(args.start_level if mode == 'seen' else args.start_level + args.num_levels),
+        )
+      val_mem = val_mems[0]
+      game_metrics = metrics[f'{mode}_levels']
+      env.reset()
+      game_metrics['steps'].append(T)
+      T_rewards, T_Qs, traj_lengths = [], [], []
+      done = True
+      for _ in range(args.evaluation_episodes):
+        while True:
+          if done:
+            state, reward_sum, done = env.reset(), 0, False
+            step_count = 0 
+          if args.pearl:
+            action = dqn.act_e_greedy(state, val_mem, epsilon=args.eval_eps)
+          else:
+            action = dqn.act_e_greedy(state, epsilon=args.eval_eps)  # Choose an action ε-greedily
+          state, reward, done, info = env.step(action)  # Step
+          step_count += 1
+          val_mem.append(state, action, reward, done)
+          reward_sum += reward 
+          if done:
+            T_rewards.append(reward_sum) 
+            traj_lengths.append(step_count)
+            break
+      for state in val_mem:  # Iterate over valid states
+        if args.pearl:
+          T_Qs.append(0) #dqn.evaluate_q(state, val_mem))
+        else:
+          T_Qs.append(dqn.evaluate_q(state))
+
+      game_metrics['avg_reward'] = sum(T_rewards) / len(T_rewards)
+      game_metrics['avg_q'] = sum(T_Qs) / len(T_Qs)
+      game_metrics['avg_traj_length'] = sum(traj_lengths) / len(traj_lengths) 
+    return 
+
+
   env = MultiTaskEnv(env_cfg)
   env.eval()
   for _id, game in enumerate(games): 
@@ -71,8 +114,7 @@ def test_all_games(games, env_cfg, args, T, dqn, val_mems, metrics, results_dir,
     env.reset()
     env._set_game(_id)
     game_metrics['steps'].append(T)
-    T_rewards, T_Qs, traj_lengths = [], [], []
-
+    T_rewards, T_Qs, traj_lengths = [], [], [] 
     # Test performance over several episodes
     done = True
     for _ in range(args.evaluation_episodes):

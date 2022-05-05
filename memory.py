@@ -9,6 +9,8 @@ blank_trans = (0, np.zeros((84, 84), dtype=np.uint8), 0, 0.0, False)
 Context_dtype = np.dtype([('state', np.uint8, (4, 84, 84)), ('action', np.int32), ('reward', np.float32)])
 blank_context = (np.zeros((4, 84, 84), dtype=np.uint8), 0, 0.0)
 
+Procgen_Transition_dtype = np.dtype([('timestep', np.int32), ('state', np.uint8, (3, 64, 64)), ('action', np.int32), ('reward', np.float32), ('nonterminal', np.bool_)])
+blank_procgen_trans = (0, np.zeros((3, 64, 64), dtype=np.uint8), 0, 0.0, False)
 # Segment tree data structure where parent node values are sum/max of children node values
 class SegmentTree():
   def __init__(self, size):
@@ -140,6 +142,11 @@ class ReplayMemory():
     self.t = 0  # Internal episode timestep counter
     self.n_step_scaling = torch.tensor([self.discount ** i for i in range(self.n)], dtype=torch.float32, device=self.device)  # Discount-scaling vector for n-step returns
     self.transitions = SegmentTree(capacity)  # Store transitions in a wrap-around cyclic buffer within a sum tree for querying priorities
+    self.use_procgen = args.use_procgen
+    if args.use_procgen:
+      print('Updating replay buffer data type to 3 channel and single step!')
+      self.transitions.data = np.array([blank_procgen_trans] * capacity, dtype=Procgen_Transition_dtype)
+      self.history = 1 
     self.normalize_reward = args.normalize_reward
     
     self.context_buffer = None
@@ -148,8 +155,15 @@ class ReplayMemory():
 
   # Adds state and action at time t, reward and terminal at time t + 1
   def append(self, state, action, reward, terminal):
-    context_state = state.mul(255).to(dtype=torch.uint8, device=torch.device('cpu'))
-    state = context_state[-1] # Only store last frame and discretise to save memory
+    if self.use_procgen:
+      if state.shape[-1] == 3:
+        state = state.transpose((2,0,1))
+      state = torch.tensor(state, dtype=torch.uint8, device=torch.device('cpu'))
+      context_state = state.to(dtype=torch.uint8, device=torch.device('cpu'))
+      state = context_state
+    else:
+      context_state = state.mul(255).to(dtype=torch.uint8, device=torch.device('cpu'))
+      state = context_state[-1] # Only store last frame and discretise to save memory
     self.transitions.append((self.t, state, action, reward, not terminal), self.transitions.max)  # Store new transition with maximum priority
     self.t = 0 if terminal else self.t + 1  # Start new episodes with t = 0
     if self.context_buffer is not None:
@@ -165,7 +179,7 @@ class ReplayMemory():
       blank_mask[:, t] = np.logical_or(blank_mask[:, t + 1], transitions_firsts[:, t + 1]) # True if future frame has timestep 0
     for t in range(self.history, self.history + self.n):  # e.g. 4 5 6
       blank_mask[:, t] = np.logical_or(blank_mask[:, t - 1], transitions_firsts[:, t]) # True if current or past frame has timestep 0
-    transitions[blank_mask] = blank_trans
+    transitions[blank_mask] = blank_procgen_trans if self.use_procgen else blank_trans 
     return transitions
 
   # Returns a valid sample from each segment
@@ -234,7 +248,7 @@ class ReplayMemory():
     blank_mask = np.zeros_like(transitions_firsts, dtype=np.bool_)
     for t in reversed(range(self.history - 1)):
       blank_mask[t] = np.logical_or(blank_mask[t + 1], transitions_firsts[t + 1]) # If future frame has timestep 0
-    transitions[blank_mask] = blank_trans
+    transitions[blank_mask] = blank_procgen_trans if self.use_procgen else blank_trans
     state = torch.tensor(transitions['state'], dtype=torch.float32, device=self.device).div_(255)  # Agent will turn into batch
     self.current_idx += 1
     return state

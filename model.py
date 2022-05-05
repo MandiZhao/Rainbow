@@ -7,6 +7,7 @@ from torch.nn import functional as F
 from einops import rearrange, repeat
 from collections import OrderedDict
 from itertools import chain
+from einops import rearrange
 
 # Factorised NoisyLinear layer with bias
 class NoisyLinear(nn.Module):
@@ -76,6 +77,11 @@ class DQN(nn.Module):
                                  nn.Conv2d(32, 64, 5, stride=5, padding=0), nn.ReLU())
       self.conv_output_size = 576
     
+    if args.use_procgen:
+      print('Use data eff encoder for procgen')
+      self.convs = nn.Sequential(nn.Conv2d(3, 32, 5, stride=5, padding=0), nn.ReLU(),
+                                 nn.Conv2d(32, 64, 5, stride=5, padding=0), nn.ReLU())
+      self.conv_output_size = 256
     # self.fc_h_v = NoisyLinear(self.conv_output_size, args.hidden_size, std_init=args.noisy_std, noiseless=args.noiseless)
     # self.fc_h_a = NoisyLinear(self.conv_output_size, args.hidden_size, std_init=args.noisy_std, noiseless=args.noiseless)
     # self.fc_z_v = NoisyLinear(args.hidden_size, self.atoms, std_init=args.noisy_std, noiseless=args.noiseless)
@@ -101,6 +107,8 @@ class DQN(nn.Module):
 
 
   def forward(self, x, log=False):
+    if len(x.shape) == 5:
+      x = rearrange(x, 'b 1 c h w -> (b 1) c h w')
     x = self.convs(x) # data eff would be B, 64, 3, 3 
     x = x.view(-1, self.conv_output_size)
     # v = self.fc_z_v(F.relu(self.fc_h_v(x)))  # Value stream

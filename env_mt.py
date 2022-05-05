@@ -2,6 +2,7 @@
 """
 ['pong', 'breakout', 'asteroids', 'qbert']
 """
+import gym 
 from collections import deque
 import numpy as np
 import random

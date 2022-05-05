@@ -22,6 +22,7 @@ from omegaconf import DictConfig, OmegaConf
 from memory_dataset import Transition
 import wandb 
 from os.path import join 
+import gym
 
 GAME_NAMES = {
    'alien': 'Alien',
@@ -82,8 +83,8 @@ parser.add_argument('--architecture', type=str, default='canonical', choices=['c
 parser.add_argument('--hidden-size', type=int, default=512, metavar='SIZE', help='Network hidden size')
 parser.add_argument('--noisy_std', type=float, default=0.1, metavar='σ', help='Initial standard deviation of noisy linear layers')
 parser.add_argument('--atoms', type=int, default=51, metavar='C', help='Discretised size of value distribution')
-parser.add_argument('--V-min', type=float, default=-10, metavar='V', help='Minimum of value distribution support')
-parser.add_argument('--V-max', type=float, default=10, metavar='V', help='Maximum of value distribution support')
+parser.add_argument('--V_min', type=float, default=-10, metavar='V', help='Minimum of value distribution support')
+parser.add_argument('--V_max', type=float, default=10, metavar='V', help='Maximum of value distribution support')
 parser.add_argument('--model', type=str, metavar='PARAMS', help='Pretrained model (state dict)')
 parser.add_argument('--memory-capacity', type=int, default=int(1e6), metavar='CAPACITY', help='Experience replay memory capacity')
 parser.add_argument('--replay_frequency', type=int, default=4, metavar='k', help='Frequency of sampling from memory')
@@ -94,7 +95,7 @@ parser.add_argument('--discount', type=float, default=0.99, metavar='γ', help='
 parser.add_argument('--target-update', type=int, default=int(8e3), metavar='τ', help='Number of steps after which to update target network')
 parser.add_argument('--reward-clip', type=int, default=1, metavar='VALUE', help='Reward clipping (0 to disable)')
 parser.add_argument('--learning_rate', type=float, default=0.0000625, metavar='η', help='Learning rate')
-parser.add_argument('--adam-eps', type=float, default=1.5e-4, metavar='ε', help='Adam epsilon')
+parser.add_argument('--adam_eps', type=float, default=1.5e-4, metavar='ε', help='Adam epsilon')
 parser.add_argument('--batch_size', type=int, default=32, metavar='SIZE', help='Batch size')
 parser.add_argument('--norm-clip', type=float, default=10, metavar='NORM', help='Max L2 norm for gradient clipping')
 parser.add_argument('--learn_start', type=int, default=int(20e3), metavar='STEPS', help='Number of steps before starting training')
@@ -144,6 +145,13 @@ parser.add_argument('--mlps', nargs='+', default=[512])
 parser.add_argument('--eval_eps', type=float, default=0.001)
 parser.add_argument('--random_steps', type=int, default=int(0))
 parser.add_argument('--apply_aug', action='store_true', help='Apply augmentation')
+
+parser.add_argument('--use_procgen', action='store_true', help='Use procgen')
+parser.add_argument('--procgen_name', type=str, default='coinrun', help='Game name for procgen')
+parser.add_argument('--num_levels', type=int, default=10, help='Levels for procgen')
+parser.add_argument('--start_level', type=int, default=0, help='start level for procgen')
+
+
 # Setup
 args = parser.parse_args()
 
@@ -164,6 +172,9 @@ if len(args.games) == 1 and GAME_SETS.get(args.games[0], None) is not None:
 
 else:
   args.id = '{}-'.format(GAME_NAMES[args.games[0]]) + args.id
+
+if args.use_procgen:
+  args.id = f'Procgen-{args.procgen_name}-Level{args.start_level}-{args.num_levels}' + args.id
 
 args.id += '-SepBuf' if args.separate_buffer else ''
 args.id += '-Seed{}'.format(args.seed)
@@ -240,45 +251,67 @@ def load_dataset(mem, dataset_path):
       break
   return 
 # Environment
-cfg = OmegaConf.load('conf/config.yaml').env
-cfg.games = list(args.games)
-games = sorted(cfg.games)
-if len(games) > 1:
-  args.learn_start = int(args.learn_start / len(games))
-  print('Setting learn_start to **shorter** for multi-task runs {}'.format(args.learn_start))
-  if args.num_games_per_batch == 1:
-    print('Default setting num_games_per_batch to {} for multi-task runs'.format(len(games)))
-    args.num_games_per_batch = len(games)
+def make_env(args):
+  if args.use_procgen:
+    print('Making procgen env:', args.procgen_name)
+    env = gym.make(
+      f"procgen:procgen-{args.procgen_name}-v0",
+      num_levels=args.num_levels, 
+      distribution_mode='hard', 
+      start_level=args.start_level)
+    print('Using only 1 buffer for multi-level training')
+    args.separate_buffer = False
+    action_space = 15
+  else:
+    print('Using Atari with games', args.games) 
+    cfg = OmegaConf.load('conf/config.yaml').env
+    cfg.games = list(args.games)
+    games = sorted(cfg.games)
+    if len(games) > 1:
+      args.learn_start = int(args.learn_start / len(games))
+      print('Setting learn_start to **shorter** for multi-task runs {}'.format(args.learn_start))
+      if args.num_games_per_batch == 1:
+        print('Default setting num_games_per_batch to {} for multi-task runs'.format(len(games)))
+        args.num_games_per_batch = len(games)
 
-if args.model is not None and not args.load_conv_only:
-  cfg.modify_action_size = 18 
-if args.pad_action_space > 0:
-  print('Warning! Padding action space with {} zeros'.format(args.pad_action_space))
-  cfg.modify_action_size = args.pad_action_space
+    if args.model is not None and not args.load_conv_only:
+      cfg.modify_action_size = 18 
+    if args.pad_action_space > 0:
+      print('Warning! Padding action space with {} zeros'.format(args.pad_action_space))
+      cfg.modify_action_size = args.pad_action_space
 
-env = MultiTaskEnv(cfg)
-env.train()
-action_space = env.action_space()
+    env = MultiTaskEnv(cfg)
+    env.train()
+    action_space = env.action_space()
+  return env, action_space 
+
+env, action_space = make_env(args)
+
 if not args.no_wb:
   wandb.init(project='Rainbow', group='multitask', name=args.id)
   wandb.config.update(vars(args))
 
 # Agent
 if args.pearl:
-  dqn = PearlAgent(args, env)
+  dqn = PearlAgent(args, action_space)
 else:
-  dqn = MultiTaskAgent(args, env)
+  dqn = MultiTaskAgent(args, action_space)
 
+games = sorted(list(args.games))
 metrics = {} 
-for _id, game in enumerate(games):
-  # metrics['game_{:02d}'.format(_id)] = {'steps': [], 'rewards': [], 'Qs': [], 'best_avg_reward': -float('inf')}
-  metrics[f'game_{game}'] = {'steps': [], 'rewards': [], 'Qs': [], 'best_avg_reward': -float('inf')}
+if args.use_procgen:
+  for mode in ['seen', 'unseen']:
+    metrics[f'{mode}_levels'] = {'steps': [], 'rewards': [], 'Qs': [], 'best_avg_reward': -float('inf')}
+else:
+  for _id, game in enumerate(games):
+    # metrics['game_{:02d}'.format(_id)] = {'steps': [], 'rewards': [], 'Qs': [], 'best_avg_reward': -float('inf')}
+    metrics[f'game_{game}'] = {'steps': [], 'rewards': [], 'Qs': [], 'best_avg_reward': -float('inf')}
 
 def log_metrics(T):
   tolog = {'Env Step': T}
   log_string = f"T = {T}/{args.T_max}"
   for key, v in metrics.items():
-    if 'game_' in key:
+    if 'game_' in key or 'levels' in key:
       for kk, vv in v.items():
         if not isinstance(vv, list):
           tolog[key + '/' + kk] = vv 
@@ -344,27 +377,22 @@ else:
   # Training loop
   print('Evaluate before training')
   dqn.eval()  # Set DQN (online network) to evaluation mode
-  print(dqn.action_space)
-  #raise ValueError('Not implemented')
+  cfg = OmegaConf.load('conf/config.yaml').env
   test_all_games(games, cfg, args, 0, dqn, val_mems, metrics, results_dir)  # Test
   log_metrics(0) 
   dqn.train()
   total_T = 0
-  for _id, game in enumerate(env.games):
-    if len(args.load_dataset) > 1:
-      print('Not doing random exploration for offline learning')
-      break
+  print('Taking initial random steps: ')
+  if args.use_procgen:
+    # just random step all env levels
     env.reset()
-    env._set_game(_id)
-    done = True
+    done = True  
     for env_T in range(args.random_steps + args.learn_start):
       if done:
-        state = env.reset(resample_game=False)
-
+        state = env.reset() 
       if env_T % args.replay_frequency == 0:
         dqn.reset_noise()  # Draw a new set of noisy weights
-      buffer_idx = env.get_current_game_id() if args.separate_buffer else 0
-      mem = mems[buffer_idx] 
+      mem = mems[0] 
       eps = args.greedy_eps *  (1 - (T - args.learn_start) / args.act_greedy_until) if T < args.act_greedy_until else 0
       if args.constant_greedy:
         eps = args.greedy_eps
@@ -376,18 +404,47 @@ else:
         action = dqn.act_e_greedy(state, eps)  # Choose an action greedily (with noisy weights)
       
       next_state, reward, done, info = env.step(action)  # Step
-      if args.reward_clip > 0:
-        reward = max(min(reward, args.reward_clip), -args.reward_clip)  # Clip rewards
-      if args.scale_rew == '100k': # scale by max rew from 100k benchmark
-        name = info['game_name']
-        game_min, game_max = SCALE_REW_100k[name] 
-        reward = (reward - game_min) / (game_max - game_min) 
-      
       mem.append(state, action, reward, done)  # Append transition to memory
-      total_T += 1
-    print('done appending to buffer index {}'.format(buffer_idx))
-  print('done with random acting at all games, total T {}'.format(total_T))
-  
+      total_T += 1 
+  else:
+    for _id, game in enumerate(env.games):
+      if len(args.load_dataset) > 1:
+        print('Not doing random exploration for offline learning')
+        break
+      env.reset()
+      env._set_game(_id)
+      done = True
+      for env_T in range(args.random_steps + args.learn_start):
+        if done:
+          state = env.reset(resample_game=False)
+
+        if env_T % args.replay_frequency == 0:
+          dqn.reset_noise()  # Draw a new set of noisy weights
+        buffer_idx = env.get_current_game_id() if args.separate_buffer else 0
+        mem = mems[buffer_idx] 
+        eps = args.greedy_eps *  (1 - (T - args.learn_start) / args.act_greedy_until) if T < args.act_greedy_until else 0
+        if args.constant_greedy:
+          eps = args.greedy_eps
+        if env_T < args.random_steps:
+          eps = 1 # completely random!
+        if args.pearl:
+          action = dqn.act_e_greedy(state, mem, eps)
+        else:
+          action = dqn.act_e_greedy(state, eps)  # Choose an action greedily (with noisy weights)
+        
+        next_state, reward, done, info = env.step(action)  # Step
+        if args.reward_clip > 0:
+          reward = max(min(reward, args.reward_clip), -args.reward_clip)  # Clip rewards
+        if args.scale_rew == '100k': # scale by max rew from 100k benchmark
+          name = info['game_name']
+          game_min, game_max = SCALE_REW_100k[name] 
+          reward = (reward - game_min) / (game_max - game_min) 
+        
+        mem.append(state, action, reward, done)  # Append transition to memory
+        total_T += 1
+      print('done appending to buffer index {}'.format(buffer_idx))
+    print('done with random acting at all games, total T {}'.format(total_T))
+    
   if len(args.load_dataset) > 1:
     print('Offline training with loaded memory')
     for T in trange(total_T, args.T_max + 1):
@@ -416,8 +473,12 @@ else:
 
     if T % args.replay_frequency == 0:
       dqn.reset_noise()  # Draw a new set of noisy weights
-    buffer_idx = env.get_current_game_id() if args.separate_buffer else 0
-    mem = mems[buffer_idx]
+
+    if args.use_procgen: 
+      mem = mems[0]
+    else:
+      buffer_idx = env.get_current_game_id() if args.separate_buffer else 0
+      mem = mems[buffer_idx]
     mem.append(state, action, reward, done)  # Append transition to memory
 
     if args.pearl:
@@ -429,12 +490,9 @@ else:
       reward = max(min(reward, args.reward_clip), -args.reward_clip)  # Clip rewards
     if args.scale_rew == '100k': # scale by max rew from 100k benchmark
         name = info['game_name']
-        game_min, game_max = SCALE_REW_100k[name]
-        #print('before scale', reward)
-        reward = (reward - game_min) / (game_max - game_min)
-        #print('after rew', reward)
-    # Train and test
-    # if T >= args.learn_start:
+        game_min, game_max = SCALE_REW_100k[name] 
+        reward = (reward - game_min) / (game_max - game_min) 
+
     mem.priority_weight = min(mem.priority_weight + priority_weight_increase, 1)  # Anneal importance sampling weight β to 1
 
     if T % args.replay_frequency == 0:

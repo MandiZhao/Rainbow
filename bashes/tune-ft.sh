@@ -76,6 +76,9 @@ taskset -c $CPUS python main_mt.py --target-update 2000 \
 # continue from non-noisy layer 
 CPUS=0-64
 MODEL=8task-v2-DataEff-MT-3MLP256-B64-SepBuf-Seed123/checkpoint_500000.pth
+
+# used aug:
+MODEL=8task-v2-DataEff-MT-3MLP512-ApplyAug-B32-SepBuf-Seed123/checkpoint_1000000.pth
 GAME=jamesbond # up_n_down ms_pacman # pong battle_zone
 for SEED in 123 312 132 # 321 213
 do 
@@ -89,6 +92,32 @@ taskset -c $CPUS python main_mt.py --target-update 2000 --T_max 100000 \
                --evaluation_interval 5000 --seed $SEED \
                --games $GAME --model $MODEL \
                --learn_start 1600 \
-               --mlps 256 256 --id DataEff-ApplyAug --reset_sigmas
-                --apply_aug 
+               --mlps 512 512 \
+               --id Tune-1MAuged-BigMLP-Lr5e-5 --reset_sigmas
 done
+
+# noiseless
+
+MODEL=8task-v2-DataEff-MT-3MLP512-Noiseless-Aug-B32-SepBuf-Seed123/checkpoint_100000.pth
+GAME=jamesbond # up_n_down ms_pacman # pong battle_zone
+for SEED in 123 312 132 # 321 213
+do 
+taskset -c $CPUS python main_mt.py --target-update 2000 --T_max 100000 \
+               --memory-capacity 100000 \
+               --replay_frequency 1 \
+               --multi-step 20 \
+               --architecture data-efficient \
+               --hidden-size 256 \
+               --learning_rate 0.0001 \
+               --evaluation_interval 5000 --seed $SEED \
+               --games $GAME --model $MODEL \
+               --learn_start 1600 \
+               --mlps 512 512 \
+               --id Tune-Noiseless-BigMLP --noiseless \
+               --greedy_eps 0.9 --act_greedy_until 100_000 
+done
+
+
+
+--mlps 512 --id Tune-1MAuged-BigMLP \
+                --load_conv_only --unfreeze_conv_when 100_000 

@@ -14,8 +14,8 @@ from torchvision.transforms import RandomAffine, RandomResizedCrop
 
 
 class MultiTaskAgent():
-  def __init__(self, args, env):
-    self.action_space = env.action_space()
+  def __init__(self, args, action_space):
+    self.action_space = action_space
     self.atoms = args.atoms
     self.Vmin = args.V_min
     self.Vmax = args.V_max
@@ -73,6 +73,7 @@ class MultiTaskAgent():
     if self.apply_aug:
       print('Applying Random Resized Crop')
     self.aug = RandomResizedCrop(84, scale=(0.8, 1.0), ratio=(0.9, 1.1))
+    self.device = args.device
     
   # Resets noisy weights in all linear layers (of online net only)
   def reset_noise(self):
@@ -80,11 +81,19 @@ class MultiTaskAgent():
 
   # Acts based on single state (no batch)
   def act(self, state):
+    if type(state) == np.ndarray:
+      if state.shape[-1] == 3:
+        state = state.transpose((2,0,1))
+      state = torch.tensor(state, dtype=torch.float32, device=self.device).div_(255)
     with torch.no_grad():
       return (self.online_net(state.unsqueeze(0)) * self.support).sum(2).argmax(1).item()
 
   # Acts with an ε-greedy policy (used for evaluation only)
   def act_e_greedy(self, state, epsilon=0.001):  # High ε can reduce evaluation scores drastically
+    if type(state) == np.ndarray:
+      if state.shape[-1] == 3:
+        state = state.transpose((2,0,1))
+      state = torch.tensor(state, dtype=torch.float32, device=self.device).div_(255)
     return np.random.randint(0, self.action_space) if np.random.random() < epsilon else self.act(state)
 
   def sample_batch(self, mems):
@@ -199,6 +208,10 @@ class MultiTaskAgent():
 
   # Evaluates Q-value based on single state (no batch)
   def evaluate_q(self, state):
+    if type(state) == np.ndarray:
+      if state.shape[-1] == 3:
+        state = state.transpose((2,0,1))
+      state = torch.tensor(state, dtype=torch.float32, device=self.device).div_(255)
     with torch.no_grad():
       return (self.online_net(state.unsqueeze(0)) * self.support).sum(2).max(1)[0].item()
 
