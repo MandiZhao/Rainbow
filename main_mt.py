@@ -50,6 +50,12 @@ GAME_NAMES = {
 GAME_SETS = {
   '8task-v1': ['asteroids', 'alien', 'beam_rider', 'frostbite', 'krull', 'ms_pacman', 'road_runner', 'seaquest'],
   '8task-v2': ['asteroids', 'alien', 'beam_rider', 'breakout', 'frostbite', 'krull', 'road_runner', 'seaquest'],
+  '5-task': ['breakout', 'demon_attack', 'robotank', 'bank_heist', 'solaris'],
+  '10-task': [
+    'breakout', 'demon_attack', 'robotank', 'bank_heist', 'solaris',
+    'alien', 'seaquest', 'asteroids', 'krull', 'frostbite'
+  ],
+  
   '20-task': ['asteroids', 'alien', 'beam_rider', 'breakout', 'frostbite'] + \
        ['krull', 'road_runner', 'seaquest', 'amidar', 'assault'] + \
        ['asterix', 'bank_heist', 'boxing', 'chopper_command', 'private_eye'] + \
@@ -106,7 +112,7 @@ parser.add_argument('--evaluation_episodes', type=int, default=10, metavar='N', 
 parser.add_argument('--evaluation_size', type=int, default=500, metavar='N', help='Number of transitions to use for validating Q')
 parser.add_argument('--render', action='store_true', help='Display screen (testing only)')
 parser.add_argument('--enable-cudnn', action='store_true', help='Enable cuDNN (faster but nondeterministic)')
-parser.add_argument('--checkpoint_interval', type=int, default=500000, help='How often to checkpoint the model, defaults to 0.5M ')
+parser.add_argument('--checkpoint_interval', type=int, default=50000, help='How often to checkpoint the model, defaults to 0.5M ')
 parser.add_argument('--memory', help='Path to save/load the memory from')
 parser.add_argument('--disable-bzip-memory', action='store_true', help='Don\'t zip the memory file. Not recommended (zipping is a bit slower and much, much smaller)')
 
@@ -154,7 +160,9 @@ parser.add_argument('--start_level', type=int, default=0, help='start level for 
 
 # Setup
 args = parser.parse_args()
-
+if len(args.games) > 1:
+  print('Multiple games use separate buffers by default')
+  args.separate_buffer = True
 if args.reptile_k > 0:
   args.separate_buffer = True
   print('Using Reptile with inner step size: {}'.format(args.reptile_k))
@@ -170,13 +178,15 @@ if len(args.games) == 1 and GAME_SETS.get(args.games[0], None) is not None:
   args.id = f'{key}-' + args.id
   args.id += f'-B{args.batch_size}' + ('-NormRew' if args.normalize_reward else '')
 
+elif len(args.games) > 5:
+  args.id = f"{len(args.games)}Task-" + args.id
 else:
-  args.id = '{}-'.format(GAME_NAMES[args.games[0]]) + args.id
+  names = "_".join(sorted(args.games))
+  args.id = names + "-" + args.id
 
 if args.use_procgen:
   args.id = f'Procgen-{args.procgen_name}-Level{args.start_level}-{args.num_levels}' + args.id
-
-args.id += '-SepBuf' if args.separate_buffer else ''
+ 
 args.id += '-Seed{}'.format(args.seed)
 
 if args.model is not None:
@@ -288,7 +298,7 @@ def make_env(args):
 env, action_space = make_env(args)
 
 if not args.no_wb:
-  wandb.init(project='Rainbow', group='multitask', name=args.id)
+  wandb.init(project='neurips22', group='atari', name=args.id)
   wandb.config.update(vars(args))
 
 # Agent

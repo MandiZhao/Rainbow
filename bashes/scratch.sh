@@ -9,7 +9,9 @@ taskset -c $CPUS python main_mt.py --id Scratch-Pad18-Seed${SEED} --games $GAME 
 # simple scratch 
 CPUS=0-64
 GAME=pong 
-for SEED in 123 321 213
+GAME=battle_zone 
+GAME=up_n_down
+for SEED in 321 213
 do
-taskset -c $CPUS python main_mt.py --game $GAME --id Scratch-Seed${SEED}
+taskset -c $CPUS python main_mt.py --game $GAME --id Scratch --seed $SEED
 done

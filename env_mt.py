@@ -54,10 +54,10 @@ class MultiTaskEnv():
       tmp_ale.loadROM(atari_py.get_game_path(g))
       game_to_actions.append(tmp_ale.getMinimalActionSet())
  
-    max_action_set = max([len(a) for a in game_to_actions])
-    if cfg.modify_action_size > 0:
-      assert cfg.modify_action_size >= max_action_set, 'Modify action size must be at least as big as max action size'
-      max_action_set = cfg.modify_action_size
+    max_action_set = max([len(a) for a in game_to_actions] + [int(cfg.modify_action_size)])
+    # if cfg.modify_action_size > 0:
+    #   assert cfg.modify_action_size >= max_action_set, 'Modify action size must be at least as big as max action size'
+    #   max_action_set = maxcfg.modify_action_size
     # print('Padding multi-task env with max action set size: {}'.format(max_action_set))
     self.game_to_actions = []
     for a in game_to_actions:
@@ -209,16 +209,26 @@ if __name__ == '__main__':
 
   # test demon_attack (similar to assault), kangaroo, similar to amidar
   games = ['jamesbond', 'kangaroo', 'demon_attack']
-  obs_all = []
 
+  games = ['robotank', 'enduro', 'battle_zone', 'solaris', 'beam_rider']
+ 
+ 
+  games = ['pong', 'assault', 'battle_zone', 'ms_pacman', 'beam_rider']
+  # need training game to pad: 
+  # pong: 6, assault: 7, battle_zone: 18, ms_pacman: 9, beam_rider: 9
+  
+  games = games + ['breakout', 'demon_attack', 'robotank', 'bank_heist', 'solaris']
+  obs_all = []
   for i, name in enumerate(games):
     env = atari_py.ALEInterface()
     env.loadROM(atari_py.get_game_path(name))
     env.reset_game() # getScreenRGB()[:, :, ::-1] # (210, 160, 3)
+    print(name, env.getMinimalActionSet())
     obs = env.getScreenGrayscale()[:,:,0]
     # plt.imsave('pngs/{}_gray.png'.format(name), obs, cmap='gray')
+    obs_all.append(np.ones((210, 40)) * 255)
     obs_all.append(obs)
 
   obs_all = np.concatenate(obs_all, axis=1)
-  plt.imsave(f"pngs/{'-'.join(games)}.png", obs_all, cmap='gray')
+  #plt.imsave(f"latest_1task_train-{'-'.join(games)}.png", obs_all, cmap='gray')
 
