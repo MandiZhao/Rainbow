@@ -91,7 +91,7 @@ class MultiTaskEnv():
     self.state_buffer = deque([], maxlen=self.window)
 
   def _set_game(self, game_id):
-    assert game_id < self.num_games, 'Game id out of range'
+    assert game_id < self.num_games, f'Game id {game_id} out of range {self.num_games}'
     self.current_id = game_id
     self.current_game = self.games[game_id]
     self.ale.loadROM(atari_py.get_game_path(self.current_game))  # ROM loading must be done after setting options

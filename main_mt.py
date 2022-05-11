@@ -387,8 +387,7 @@ else:
   # Training loop
   print('Evaluate before training')
   dqn.eval()  # Set DQN (online network) to evaluation mode
-  cfg = OmegaConf.load('conf/config.yaml').env
-  test_all_games(games, cfg, args, 0, dqn, val_mems, metrics, results_dir)  # Test
+  test_all_games(games, (None if args.use_procgen else cfg), args, 0, dqn, val_mems, metrics, results_dir)  # Test
   log_metrics(0) 
   dqn.train()
   total_T = 0
@@ -461,7 +460,7 @@ else:
       dqn.learn(mems)
       if T % args.evaluation_interval == 0:
         dqn.eval()  # Set DQN (online network) to evaluation mode
-        test_all_games(games, cfg, args, T, dqn, val_mems, metrics, results_dir)  # Test
+        test_all_games(games, (None if args.use_procgen else cfg), args, T, dqn, val_mems, metrics, results_dir)  # Test
         log_metrics(T)
         dqn.train()  # Set DQN (online network) back to training mode
       if T % args.target_update == 0:
@@ -518,7 +517,7 @@ else:
 
     if T % args.evaluation_interval == 0:
       dqn.eval()  # Set DQN (online network) to evaluation mode
-      test_all_games(games, cfg, args, T, dqn, val_mems, metrics, results_dir)  # Test
+      test_all_games(games, (None if args.use_procgen else cfg), args, T, dqn, val_mems, metrics, results_dir)  # Test
       log_metrics(T)
 
       # log(log_string, args)

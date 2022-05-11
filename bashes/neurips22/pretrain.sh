@@ -50,3 +50,17 @@ done
 
 
 # 5 task train and 10 task train!
+CPUS=0-128
+CPUS=128-255 
+taskset -c $CPUS python main_mt.py --target-update 2000 --T_max 1_000_000 \
+               --memory-capacity 1_000_000 \
+               --replay_frequency 1 \
+               --multi-step 20 \
+               --architecture data-efficient \
+               --mlps 512 \
+               --learning_rate 0.0001 \
+               --evaluation_interval 50_000 \
+               --checkpoint_interval 50_000 \
+               --id DataEff \
+               --learn_start 9000 \
+               --games 10-task #  5-task
