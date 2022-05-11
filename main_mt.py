@@ -272,6 +272,7 @@ def make_env(args):
     print('Using only 1 buffer for multi-level training')
     args.separate_buffer = False
     action_space = 15
+    cfg = None
   else:
     print('Using Atari with games', args.games) 
     cfg = OmegaConf.load('conf/config.yaml').env
@@ -293,9 +294,9 @@ def make_env(args):
     env = MultiTaskEnv(cfg)
     env.train()
     action_space = env.action_space()
-  return env, action_space 
+  return env, action_space, cfg
 
-env, action_space = make_env(args)
+env, action_space, cfg = make_env(args)
 
 if not args.no_wb:
   wandb.init(project='neurips22', group='atari', name=args.id)
@@ -387,7 +388,7 @@ else:
   # Training loop
   print('Evaluate before training')
   dqn.eval()  # Set DQN (online network) to evaluation mode
-  test_all_games(games, (None if args.use_procgen else cfg), args, 0, dqn, val_mems, metrics, results_dir)  # Test
+  test_all_games(games, cfg, args, 0, dqn, val_mems, metrics, results_dir)  # Test
   log_metrics(0) 
   dqn.train()
   total_T = 0
@@ -460,7 +461,7 @@ else:
       dqn.learn(mems)
       if T % args.evaluation_interval == 0:
         dqn.eval()  # Set DQN (online network) to evaluation mode
-        test_all_games(games, (None if args.use_procgen else cfg), args, T, dqn, val_mems, metrics, results_dir)  # Test
+        test_all_games(games, cfg, args, T, dqn, val_mems, metrics, results_dir)  # Test
         log_metrics(T)
         dqn.train()  # Set DQN (online network) back to training mode
       if T % args.target_update == 0:
@@ -517,7 +518,7 @@ else:
 
     if T % args.evaluation_interval == 0:
       dqn.eval()  # Set DQN (online network) to evaluation mode
-      test_all_games(games, (None if args.use_procgen else cfg), args, T, dqn, val_mems, metrics, results_dir)  # Test
+      test_all_games(games, cfg, args, T, dqn, val_mems, metrics, results_dir)  # Test
       log_metrics(T)
 
       # log(log_string, args)
