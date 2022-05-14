@@ -266,3 +266,8 @@ class PearlDQN(DQN):
     z = torch.stack(z) 
     kl_loss = _compute_kl_loss(z_means, z_vars)
     return z, kl_loss
+
+  def reset_noise(self):
+    for name, module in self.named_children():
+      if 'fc' in name:
+        module.reset_noise()

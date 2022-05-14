@@ -218,6 +218,8 @@ if __name__ == '__main__':
   # pong: 6, assault: 7, battle_zone: 18, ms_pacman: 9, beam_rider: 9
   
   games = games + ['breakout', 'demon_attack', 'robotank', 'bank_heist', 'solaris']
+
+  games = [ 'alien', 'seaquest', 'asteroids', 'krull', 'frostbite']
   obs_all = []
   for i, name in enumerate(games):
     env = atari_py.ALEInterface()
@@ -230,5 +232,5 @@ if __name__ == '__main__':
     obs_all.append(obs)
 
   obs_all = np.concatenate(obs_all, axis=1)
-  #plt.imsave(f"latest_1task_train-{'-'.join(games)}.png", obs_all, cmap='gray')
+  plt.imsave(f"remain_5task_train-{'-'.join(games)}.png", obs_all, cmap='gray')
 
